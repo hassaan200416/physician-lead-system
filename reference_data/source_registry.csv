@@ -1,0 +1,7 @@
+source_name,source_type,authority_rank,update_frequency
+nppes,authoritative,1,weekly
+cms_pos_file,authoritative,2,quarterly
+medicare_billing,authoritative,3,quarterly
+vendor_enrichment,enrichment,4,monthly
+scraped_website,scraped,5,on-demand
+inferred,inferred,6,on-demand
