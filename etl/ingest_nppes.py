@@ -78,13 +78,15 @@ GENDER_COL = "Provider Gender Code"
 # Graduation year column
 GRAD_YEAR_COL = "Provider Graduation Year"
 
+ORG_NAME_COL = "Provider Organization Name (Legal Business Name)"
+
 # All columns we need to read (reduces memory usage)
 REQUIRED_COLUMNS = (
     [NPI_COL, ENTITY_TYPE_COL, DEACTIVATION_DATE_COL,
      ENUMERATION_DATE_COL, LAST_UPDATE_COL,
      FIRST_NAME_COL, MIDDLE_NAME_COL, LAST_NAME_COL, CREDENTIAL_COL,
      ADDR1_COL, ADDR2_COL, CITY_COL, STATE_COL, ZIP_COL,
-     GENDER_COL, GRAD_YEAR_COL]
+     GENDER_COL, GRAD_YEAR_COL, ORG_NAME_COL]
     + TAXONOMY_COLS + SWITCH_COLS
     + LICENSE_COLS + LICENSE_STATE_COLS
 )
@@ -159,9 +161,46 @@ def load_reference_data(conn: Connection) -> ReferenceData:
     }
 
 
+# ── ORG NAME PRE-SCANNER ─────────────────────────────────────────────────────
+
+def collect_org_names(csv_path: str, cols_to_read: list[str]) -> dict[str, str]:
+    """
+    First pass through NPPES — collects Type 2 organization names
+    keyed by their practice address (addr1|zip).
+    Used to enrich Type 1 physician records with real org names.
+    """
+    print("Pre-scanning NPPES for organization names (Type 2)...")
+
+    org_map: dict[str, str] = {}  # key: "addr|zip", value: org_name
+
+    chunk_iter = pd.read_csv(
+        csv_path,
+        usecols=lambda c: c in [ENTITY_TYPE_COL, ORG_NAME_COL, ADDR1_COL, ZIP_COL],
+        chunksize=CHUNK_SIZE,
+        dtype=str,
+        low_memory=False,
+    )
+
+    count = 0
+    for chunk in chunk_iter:
+        type2 = chunk[chunk[ENTITY_TYPE_COL].str.strip() == "2"]
+        for _, row in type2.iterrows():
+            org_name = str(row.get(ORG_NAME_COL, "")).strip()
+            addr = str(row.get(ADDR1_COL, "")).strip().upper()
+            zip_code = str(row.get(ZIP_COL, "")).strip()[:5]
+
+            if org_name and org_name != "nan" and addr and zip_code:
+                key = f"{addr}|{zip_code}"
+                org_map[key] = org_name
+                count += 1
+
+    print(f"  Collected {count} organization names from Type 2 records")
+    return org_map
+
+
 # ── ROW PROCESSOR ─────────────────────────────────────────────────────────────
 
-def process_row(row: pd.Series, ref: ReferenceData) -> Optional[ProcessedRow]:
+def process_row(row: pd.Series, ref: ReferenceData, org_name_map: dict[str, str] = {}) -> Optional[ProcessedRow]:
     """
     Processes a single NPPES row.
     Returns a dict of cleaned physician data or None if row should be skipped.
@@ -252,6 +291,14 @@ def process_row(row: pd.Series, ref: ReferenceData) -> Optional[ProcessedRow]:
 
     zip_valid, zip_clean, _ = validate_zip(zip_raw)
     zip_code = zip_clean if zip_valid else None
+
+    # Organization name — try Type 1 record first, then Type 2 lookup by address
+    org_name_raw = str(row.get(ORG_NAME_COL, "")).strip()
+    org_name = org_name_raw if org_name_raw not in ("", "nan") else None
+
+    if not org_name and org_name_map:
+        addr_key = f"{addr1_raw.upper()}|{zip_clean[:5] if zip_clean else ''}"
+        org_name = org_name_map.get(addr_key)
 
     # ZIP-state cross validation
     zip_state_match = False
@@ -394,6 +441,7 @@ def process_row(row: pd.Series, ref: ReferenceData) -> Optional[ProcessedRow]:
         "gender_confidence": gender_conf,
         "lead_score_current": score_result["lead_score_current"],
         "lead_tier": score_result["lead_tier"],
+        "organization_name": org_name,
         "address": {
             "address_line_1": addr1,
             "address_line_2": addr2,
@@ -427,6 +475,7 @@ def upsert_physician(conn: Connection, data: ProcessedRow, now: datetime) -> Non
             gender_raw, gender_normalized, gender_source, gender_confidence,
             gender_last_seen,
             lead_score_current, lead_tier, lead_score_last_updated,
+            organization_name,
             created_at, updated_at, last_nppes_sync
         ) VALUES (
             :npi, :entity_type, :is_active,
@@ -442,6 +491,7 @@ def upsert_physician(conn: Connection, data: ProcessedRow, now: datetime) -> Non
             :gender_raw, :gender_normalized, :gender_source, :gender_confidence,
             :gender_last_seen,
             :lead_score_current, :lead_tier, :lead_now,
+            :organization_name,
             :now, :now, :now
         )
         ON CONFLICT (npi) DO UPDATE SET
@@ -472,6 +522,7 @@ def upsert_physician(conn: Connection, data: ProcessedRow, now: datetime) -> Non
             license_count            = EXCLUDED.license_count,
             gender_raw               = EXCLUDED.gender_raw,
             gender_normalized        = EXCLUDED.gender_normalized,
+            organization_name        = EXCLUDED.organization_name,
             lead_score_current       = EXCLUDED.lead_score_current,
             lead_tier                = EXCLUDED.lead_tier,
             lead_score_last_updated  = EXCLUDED.lead_score_last_updated,
@@ -554,41 +605,68 @@ def upsert_licenses(
 
 def cluster_organizations(conn: Connection, now: datetime) -> int:
     """
-    Discovers organizations by clustering physicians
-    who share the same address.
-    Groups by address_line_1 + zip and assigns cluster IDs.
+    Discovers organizations by clustering physicians by address.
+    Every physician gets an organization record - solo or grouped.
+    Uses real practice name from NPPES where available.
     """
     print("Clustering organizations by shared address...")
 
-    # Find addresses with 2+ physicians
+    # Step 1 - Group physicians sharing same address (2+ physicians)
     result = conn.execute(text("""
         SELECT
-            UPPER(TRIM(address_line_1)) as addr,
-            zip,
-            state,
-            COUNT(DISTINCT npi) as physician_count,
-            array_agg(DISTINCT npi) as npis
-        FROM physician_practice_locations
-        WHERE address_line_1 IS NOT NULL
-          AND zip IS NOT NULL
-        GROUP BY UPPER(TRIM(address_line_1)), zip, state
-        HAVING COUNT(DISTINCT npi) >= 2
+            UPPER(TRIM(ppl.address_line_1)) as addr,
+            ppl.zip,
+            ppl.state,
+            COUNT(DISTINCT ppl.npi) as physician_count,
+            array_agg(DISTINCT ppl.npi) as npis
+        FROM physician_practice_locations ppl
+        WHERE ppl.address_line_1 IS NOT NULL
+          AND ppl.zip IS NOT NULL
+        GROUP BY UPPER(TRIM(ppl.address_line_1)), ppl.zip, ppl.state
     """))
 
-    cluster_count = 0
     org_count = 0
 
     for row in result:
         addr = row[0]
         zip_code = row[1]
         state = row[2]
+        physician_count = row[3]
         npi_list = row[4]
 
-        # Generate a stable cluster ID
+        # Generate stable cluster ID from address
         cluster_seed = f"{addr}|{zip_code}"
         cluster_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, cluster_seed))
 
-        # Update practice_cluster_id on all matching locations
+        # Get the best organization name available for this address
+        # Use the most common org name among physicians at this address
+        name_result = conn.execute(text("""
+            SELECT organization_name, COUNT(*) as cnt
+            FROM physician
+            WHERE npi = ANY(:npis)
+              AND organization_name IS NOT NULL
+              AND organization_name != ''
+            GROUP BY organization_name
+            ORDER BY cnt DESC
+            LIMIT 1
+        """), {"npis": npi_list})
+
+        name_row = name_result.fetchone()
+        org_name = name_row[0] if name_row else addr
+
+        # Normalize org name
+        org_name_norm = org_name.strip().upper() if org_name else addr
+
+        # Detect solo vs large system
+        solo_flag = physician_count == 1
+        large_system_flag = any(
+            keyword in org_name_norm for keyword in [
+                "MEDICAL CENTER", "HOSPITAL", "HEALTH SYSTEM",
+                "UNIVERSITY HEALTH", "REGIONAL HEALTH", "CLINIC"
+            ]
+        ) if org_name_norm else False
+
+        # Update practice_cluster_id on locations
         conn.execute(text("""
             UPDATE physician_practice_locations
             SET practice_cluster_id = :cluster_id
@@ -596,37 +674,42 @@ def cluster_organizations(conn: Connection, now: datetime) -> int:
               AND zip = :zip
         """), {"cluster_id": cluster_id, "addr": addr, "zip": zip_code})
 
-        # Create or update organization record
+        # Upsert organization record
         conn.execute(text("""
             INSERT INTO organization_master (
                 organization_id, organization_name_raw,
                 organization_name_normalized,
                 address_line_1, state, zip,
-                practice_size_estimate, source,
-                first_seen_date, last_seen_date,
+                practice_size_estimate,
+                solo_practice_flag, large_system_flag,
+                source, first_seen_date, last_seen_date,
                 created_at, updated_at
             ) VALUES (
                 :org_id, :name, :name_norm,
                 :addr, :state, :zip,
-                :size, 'nppes_clustering',
-                :now, :now, :now, :now
+                :size, :solo, :large,
+                'nppes_clustering', :now, :now, :now, :now
             )
             ON CONFLICT (organization_id) DO UPDATE SET
                 practice_size_estimate = EXCLUDED.practice_size_estimate,
-                last_seen_date = EXCLUDED.last_seen_date,
-                updated_at = EXCLUDED.updated_at
+                solo_practice_flag     = EXCLUDED.solo_practice_flag,
+                large_system_flag      = EXCLUDED.large_system_flag,
+                last_seen_date         = EXCLUDED.last_seen_date,
+                updated_at             = EXCLUDED.updated_at
         """), {
             "org_id": cluster_id,
-            "name": addr,
-            "name_norm": addr,
+            "name": org_name,
+            "name_norm": org_name_norm,
             "addr": addr,
             "state": state,
             "zip": zip_code,
-            "size": len(npi_list),
+            "size": physician_count,
+            "solo": solo_flag,
+            "large": large_system_flag,
             "now": now,
         })
 
-        # Link all physicians to this organization
+        # Link all physicians at this address to this organization
         for npi in npi_list:
             conn.execute(text("""
                 INSERT INTO physician_organization_link (
@@ -639,11 +722,10 @@ def cluster_organizations(conn: Connection, now: datetime) -> int:
                 ON CONFLICT DO NOTHING
             """), {"npi": npi, "org_id": cluster_id, "now": now})
 
-        cluster_count += 1
         org_count += 1
 
     conn.commit()
-    print(f"  Created/updated {org_count} organizations from {cluster_count} address clusters")
+    print(f"  Created/updated {org_count} organizations")
     return org_count
 
 
@@ -707,6 +789,9 @@ def run_etl(csv_path: str, limit: Optional[int] = None) -> None:
         print(f"Error reading CSV headers: {e}")
         return
 
+    # Pre-scan for Type 2 organization names
+    org_name_map = collect_org_names(csv_path, cols_to_read)
+
     print(f"\nReading CSV in chunks of {CHUNK_SIZE:,} rows...")
     print("-" * 60)
 
@@ -736,7 +821,7 @@ def run_etl(csv_path: str, limit: Optional[int] = None) -> None:
             rows_processed += 1
 
             try:
-                result = process_row(row, ref)
+                result = process_row(row, ref, org_name_map)
                 if result is None:
                     rows_skipped += 1
                     continue
@@ -871,6 +956,7 @@ def flush_batch(
                     gender_raw, gender_normalized, gender_source, gender_confidence,
                     gender_last_seen,
                     lead_score_current, lead_tier, lead_score_last_updated,
+                    organization_name,
                     created_at, updated_at, last_nppes_sync
                 ) VALUES (
                     :npi, :entity_type, :is_active,
@@ -886,6 +972,7 @@ def flush_batch(
                     :gender_raw, :gender_normalized, :gender_source, :gender_confidence,
                     :gender_last_seen,
                     :lead_score_current, :lead_tier, :lead_now,
+                    :organization_name,
                     :now, :now, :now
                 )
                 ON CONFLICT (npi) DO UPDATE SET
@@ -916,6 +1003,7 @@ def flush_batch(
                     license_count            = EXCLUDED.license_count,
                     gender_raw               = EXCLUDED.gender_raw,
                     gender_normalized        = EXCLUDED.gender_normalized,
+                    organization_name        = EXCLUDED.organization_name,
                     lead_score_current       = EXCLUDED.lead_score_current,
                     lead_tier                = EXCLUDED.lead_tier,
                     lead_score_last_updated  = EXCLUDED.lead_score_last_updated,
