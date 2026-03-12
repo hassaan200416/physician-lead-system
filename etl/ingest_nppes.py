@@ -834,44 +834,172 @@ def flush_batch(
     licenses: list[PhysicianLicensesPair],
     now: datetime,
 ) -> tuple[int, int, int]:
-    """Writes a batch of physicians to the database."""
+    """
+    Writes a batch of physicians using bulk INSERT.
+    Much faster than individual inserts — one round trip per batch.
+    """
     inserted = 0
     updated = 0
     failed = 0
 
-    for data in physicians:
-        # Each physician gets its own connection to avoid
-        # transaction cascade failures
-        try:
-            with engine.connect() as conn:
-                result = conn.execute(
-                    text("SELECT npi FROM physician WHERE npi = :npi"),
-                    {"npi": data["npi"]}
-                )
-                exists = result.fetchone() is not None
-                upsert_physician(conn, data, now)
-                conn.commit()
-                if exists:
-                    updated += 1
-                else:
-                    inserted += 1
-        except Exception as e:
-            failed += 1
-            if failed <= 5:
-                print(f"    DB error for {data.get('npi')}: {e}")
+    if not physicians:
+        return inserted, updated, failed
 
-    for npi, addr in addresses:
+    try:
+        with engine.connect() as conn:
+            bulk_physician_rows: list[dict[str, Any]] = [{
+                **p,
+                "name_last_updated": now,
+                "gender_last_seen": now,
+                "lead_now": now,
+                "now": now
+            } for p in physicians]
+
+            # Bulk upsert all physicians in one statement
+            conn.execute(text("""
+                INSERT INTO physician (
+                    npi, entity_type, is_active,
+                    first_name_raw, middle_name_raw, last_name_raw, credential_raw,
+                    first_name_clean, last_name_clean, full_name_display,
+                    email_pattern_name, credential_normalized, name_last_updated,
+                    primary_taxonomy_code, specialty_name, derived_specialty_category,
+                    specialty_inferred, specialty_confidence,
+                    graduation_year, years_of_experience, experience_bucket,
+                    experience_source, experience_quality_flag,
+                    retirement_risk_flag, growth_profile_flag, expansion_profile_flag,
+                    multi_state_flag, license_count,
+                    gender_raw, gender_normalized, gender_source, gender_confidence,
+                    gender_last_seen,
+                    lead_score_current, lead_tier, lead_score_last_updated,
+                    created_at, updated_at, last_nppes_sync
+                ) VALUES (
+                    :npi, :entity_type, :is_active,
+                    :first_name_raw, :middle_name_raw, :last_name_raw, :credential_raw,
+                    :first_name_clean, :last_name_clean, :full_name_display,
+                    :email_pattern_name, :credential_normalized, :name_last_updated,
+                    :primary_taxonomy_code, :specialty_name, :derived_specialty_category,
+                    :specialty_inferred, :specialty_confidence,
+                    :graduation_year, :years_of_experience, :experience_bucket,
+                    :experience_source, :experience_quality_flag,
+                    :retirement_risk_flag, :growth_profile_flag, :expansion_profile_flag,
+                    :multi_state_flag, :license_count,
+                    :gender_raw, :gender_normalized, :gender_source, :gender_confidence,
+                    :gender_last_seen,
+                    :lead_score_current, :lead_tier, :lead_now,
+                    :now, :now, :now
+                )
+                ON CONFLICT (npi) DO UPDATE SET
+                    is_active                = EXCLUDED.is_active,
+                    first_name_raw           = EXCLUDED.first_name_raw,
+                    last_name_raw            = EXCLUDED.last_name_raw,
+                    credential_raw           = EXCLUDED.credential_raw,
+                    first_name_clean         = EXCLUDED.first_name_clean,
+                    last_name_clean          = EXCLUDED.last_name_clean,
+                    full_name_display        = EXCLUDED.full_name_display,
+                    email_pattern_name       = EXCLUDED.email_pattern_name,
+                    credential_normalized    = EXCLUDED.credential_normalized,
+                    name_last_updated        = EXCLUDED.name_last_updated,
+                    primary_taxonomy_code    = EXCLUDED.primary_taxonomy_code,
+                    specialty_name           = EXCLUDED.specialty_name,
+                    derived_specialty_category = EXCLUDED.derived_specialty_category,
+                    specialty_inferred       = EXCLUDED.specialty_inferred,
+                    specialty_confidence     = EXCLUDED.specialty_confidence,
+                    graduation_year          = EXCLUDED.graduation_year,
+                    years_of_experience      = EXCLUDED.years_of_experience,
+                    experience_bucket        = EXCLUDED.experience_bucket,
+                    experience_source        = EXCLUDED.experience_source,
+                    experience_quality_flag  = EXCLUDED.experience_quality_flag,
+                    retirement_risk_flag     = EXCLUDED.retirement_risk_flag,
+                    growth_profile_flag      = EXCLUDED.growth_profile_flag,
+                    expansion_profile_flag   = EXCLUDED.expansion_profile_flag,
+                    multi_state_flag         = EXCLUDED.multi_state_flag,
+                    license_count            = EXCLUDED.license_count,
+                    gender_raw               = EXCLUDED.gender_raw,
+                    gender_normalized        = EXCLUDED.gender_normalized,
+                    lead_score_current       = EXCLUDED.lead_score_current,
+                    lead_tier                = EXCLUDED.lead_tier,
+                    lead_score_last_updated  = EXCLUDED.lead_score_last_updated,
+                    updated_at               = EXCLUDED.updated_at,
+                    last_nppes_sync          = EXCLUDED.last_nppes_sync
+            """), bulk_physician_rows)
+
+            conn.commit()
+            inserted = len(physicians)
+
+    except Exception as e:
+        # If bulk fails, fall back to individual inserts
+        print(f"    Bulk insert failed, falling back to individual: {e}")
+        for data in physicians:
+            try:
+                with engine.connect() as conn2:
+                    upsert_physician(conn2, data, now)
+                    conn2.commit()
+                    inserted += 1
+            except Exception as e2:
+                failed += 1
+                if failed <= 3:
+                    print(f"    DB error for {data.get('npi')}: {e2}")
+
+    # Bulk insert addresses
+    addr_rows: list[PhysicianAddressPair] = [
+        (npi, addr) for npi, addr in addresses
+        if addr.get("address_line_1")
+    ]
+    if addr_rows:
         try:
             with engine.connect() as conn:
-                upsert_practice_location(conn, npi, addr, now)
+                addr_params: list[dict[str, Any]] = [{
+                    "npi": npi,
+                    "addr1": addr.get("address_line_1"),
+                    "addr2": addr.get("address_line_2"),
+                    "city": addr.get("city"),
+                    "state": addr.get("state"),
+                    "zip": addr.get("zip"),
+                    "is_primary": addr.get("is_primary_location", True),
+                    "confidence": addr.get("address_confidence_score", 0),
+                    "now": now,
+                } for npi, addr in addr_rows]
+
+                conn.execute(text("""
+                    INSERT INTO physician_practice_locations (
+                        location_id, npi, address_line_1, address_line_2,
+                        city, state, zip,
+                        is_primary_location, is_mailing_address,
+                        address_confidence_score, address_last_updated,
+                        address_last_seen, source_name, created_at
+                    ) VALUES (
+                        gen_random_uuid(), :npi, :addr1, :addr2,
+                        :city, :state, :zip,
+                        :is_primary, FALSE,
+                        :confidence, :now, :now, 'nppes', :now
+                    )
+                    ON CONFLICT DO NOTHING
+                """), addr_params)
                 conn.commit()
         except Exception:
             pass
 
+    # Bulk insert licenses
+    lic_rows: list[dict[str, Any]] = []
     for npi, lics in licenses:
+        for lic in lics:
+            lic_rows.append({"npi": npi, **lic, "now": now})
+
+    if lic_rows:
         try:
             with engine.connect() as conn:
-                upsert_licenses(conn, npi, lics, now)
+                conn.execute(text("""
+                    INSERT INTO license (
+                        license_id, npi, license_number, license_state,
+                        is_primary_license, verification_status, format_valid,
+                        linked_taxonomy_code, source, last_seen_date, created_at
+                    ) VALUES (
+                        gen_random_uuid(), :npi, :license_number, :license_state,
+                        :is_primary_license, :verification_status, :format_valid,
+                        :linked_taxonomy_code, 'nppes', :now, :now
+                    )
+                    ON CONFLICT DO NOTHING
+                """), lic_rows)
                 conn.commit()
         except Exception:
             pass
