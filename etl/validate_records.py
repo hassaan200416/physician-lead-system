@@ -84,22 +84,19 @@ def normalize_name(raw: str) -> str:
 
 
 def normalize_credential(raw: str) -> str:
-    """
-    Maps raw credential string to normalized enum.
-    Returns one of: MD, DO, MBBS, OTHER, or empty string.
-    """
     if not raw:
         return ""
 
-    raw = raw.strip().upper()
+    # Remove dots and spaces before checking
+    cleaned = raw.strip().upper().replace(".", "").replace(" ", "")
 
-    if "MD" in raw:
-        return "MD"
-    if "DO" in raw:
-        return "DO"
-    if "MBBS" in raw or "MBB" in raw:
+    if "MBBS" in cleaned or "MBB" in cleaned:
         return "MBBS"
-    if raw:
+    if cleaned in ("MD", "MDphd", "MDPHD") or cleaned.startswith("MD"):
+        return "MD"
+    if cleaned in ("DO",) or cleaned.startswith("DO"):
+        return "DO"
+    if cleaned:
         return "OTHER"
     return ""
 

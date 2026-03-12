@@ -839,41 +839,42 @@ def flush_batch(
     updated = 0
     failed = 0
 
-    with engine.connect() as conn:
-        for data in physicians:
-            try:
-                # Check if exists
+    for data in physicians:
+        # Each physician gets its own connection to avoid
+        # transaction cascade failures
+        try:
+            with engine.connect() as conn:
                 result = conn.execute(
                     text("SELECT npi FROM physician WHERE npi = :npi"),
                     {"npi": data["npi"]}
                 )
                 exists = result.fetchone() is not None
-
                 upsert_physician(conn, data, now)
-
+                conn.commit()
                 if exists:
                     updated += 1
                 else:
                     inserted += 1
+        except Exception as e:
+            failed += 1
+            if failed <= 5:
+                print(f"    DB error for {data.get('npi')}: {e}")
 
-            except Exception as e:
-                failed += 1
-                if failed <= 5:
-                    print(f"    DB error for {data.get('npi')}: {e}")
-
-        for npi, addr in addresses:
-            try:
+    for npi, addr in addresses:
+        try:
+            with engine.connect() as conn:
                 upsert_practice_location(conn, npi, addr, now)
-            except Exception:
-                pass
+                conn.commit()
+        except Exception:
+            pass
 
-        for npi, lics in licenses:
-            try:
+    for npi, lics in licenses:
+        try:
+            with engine.connect() as conn:
                 upsert_licenses(conn, npi, lics, now)
-            except Exception:
-                pass
-
-        conn.commit()
+                conn.commit()
+        except Exception:
+            pass
 
     return inserted, updated, failed
 
