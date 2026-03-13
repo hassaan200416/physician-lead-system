@@ -321,7 +321,7 @@ def store_domain(npi: str, domain: str, now: datetime):
 
 # ── STEP 5: RE-SCORE ──────────────────────────────────────────────────────────
 
-def rescore_physician(npi: str, now: datetime):
+def rescore_physician(npi: str, confidence_level: str, now: datetime):
     with engine.connect() as conn:
         result = conn.execute(text("""
             SELECT lead_score_current FROM physician WHERE npi = :npi
@@ -331,7 +331,10 @@ def rescore_physician(npi: str, now: datetime):
             return
 
         current_score = float(row[0] or 0)
-        new_score = min(100, current_score + 5)
+        email_pts = 40 if confidence_level == "HIGH" else 20
+
+        # Add email points on top of base score (pillars 2+3+4)
+        new_score = min(100, current_score + email_pts)
 
         if new_score >= 80:
             new_tier = 'A'
@@ -599,9 +602,9 @@ def run_enrichment(
             now=now
         )
 
-        rescore_physician(npi_val, now)
+        rescore_physician(npi_val, confidence_level, now)
         emails_saved += 1
-        print(f"  → SAVED. Score +5pts applied.")
+        print(f"  → SAVED. Score boosted by email confidence.")
 
     # ── SYNC TO LEADS TABLE ───────────────────────────────
     sync_to_leads_table(now)

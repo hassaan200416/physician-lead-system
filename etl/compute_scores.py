@@ -1,8 +1,8 @@
 # etl/compute_scores.py
 # Lead quality scoring engine.
 # Calculates a 0-100 score across 4 pillars.
-# Phone and email reachability (Pillar 1) starts at 0
-# and will be filled by experimental pipelines later.
+# Email is the primary reachability signal (Pillar 1).
+# Phone pipeline is not implemented — may be added in future.
 
 from typing import Optional, TypedDict
 from datetime import datetime, timezone
@@ -33,41 +33,37 @@ def compute_lead_score(
     experience_match: bool,
     geo_match: bool,
     multi_state: bool,
-    # Pillar 1 — Reachability (filled later)
-    has_phone: bool = False,
-    phone_verified: bool = False,
+    # Pillar 1 — Reachability (email-driven)
     has_email: bool = False,
-    email_confidence: float = 0.0,
-    # Score decay
-    days_since_phone_validated: Optional[int] = None,
+    email_confidence: str = "",   # "HIGH", "MEDIUM", or ""
 ) -> LeadScoreResult:
     """
     Computes lead quality score across 4 pillars.
 
-    Pillar 1 - Reachability:     40 pts (0 at base pipeline)
-    Pillar 2 - Practice Structure: 25 pts
+    Pillar 1 - Reachability:        40 pts (email-driven)
+    Pillar 2 - Practice Structure:  25 pts
     Pillar 3 - Activity & Validity: 20 pts
-    Pillar 4 - Target Fit:         15 pts
+    Pillar 4 - Target Fit:          15 pts
+    Total:                         100 pts
 
-    Returns dict with total score, tier, and pillar breakdown.
+    Tier thresholds:
+      A = 80-100
+      B = 60-79
+      C = 40-59
+      Archive = <40
     """
 
     # ── PILLAR 1: REACHABILITY (max 40) ───────────────────
+    # Email is the primary reachability signal.
+    # HIGH confidence = Hunter score ≥70, passed all free pre-filters
+    # MEDIUM confidence = Hunter score 40-69, passed pre-filters
     p1 = 0.0
 
-    if phone_verified:
-        p1 += 35
-    elif has_phone:
-        p1 += 20
-
-    if has_email and email_confidence >= 0.70:
-        p1 += 5
-
-    # Score decay — -5 per 90 days without phone revalidation
-    if days_since_phone_validated is not None and has_phone:
-        decay_periods = days_since_phone_validated // 90
-        decay = min(decay_periods * 5, 20)
-        p1 = max(0, p1 - decay)
+    if has_email:
+        if email_confidence == "HIGH":
+            p1 = 40
+        elif email_confidence == "MEDIUM":
+            p1 = 20
 
     p1 = min(40, p1)
 
@@ -86,7 +82,7 @@ def compute_lead_score(
         else:
             p2 = 5
     else:
-        p2 = 10  # unknown size — give partial credit
+        p2 = 10  # unknown size — partial credit
 
     # ── PILLAR 3: ACTIVITY & VALIDITY (max 20) ────────────
     p3 = 0.0
