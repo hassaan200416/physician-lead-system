@@ -1,73 +1,126 @@
-# React + TypeScript + Vite
+# Physician Lead System Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React application for browsing, filtering, and reviewing physician leads.
 
-Currently, two official plugins are available:
+## What This App Does
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Displays lead pipeline metrics and distribution.
+- Provides searchable/filterable lead tables.
+- Shows lead details and review flows.
+- Includes activity-focused views for recent lead additions.
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- React 19
+- TypeScript
+- Vite
+- React Router
+- TanStack Query
+- Supabase JS
+- Tailwind CSS
+- Framer Motion
 
-## Expanding the ESLint configuration
+## Project Structure
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- src/components: reusable UI, leads, and layout components
+- src/pages: route-level pages (Dashboard, Leads, Activity)
+- src/hooks: data access hooks
+- src/lib: clients and utilities
+- src/types: shared TypeScript models
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Prerequisites
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- Node.js 20+
+- npm 10+
+- Supabase project URL and anon key
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Environment Variables
+
+Create frontend/.env.local:
+
+```env
+VITE_SUPABASE_URL=<your_supabase_project_url>
+VITE_SUPABASE_ANON_KEY=<your_supabase_anon_key>
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Notes:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- Variable names must use the VITE\_ prefix.
+- Do not commit secrets or non-public keys.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Local Setup
+
+From repository root:
+
+```bash
+cd frontend
+npm install
 ```
+
+Start development server:
+
+```bash
+npm run dev
+```
+
+Build for production:
+
+```bash
+npm run build
+```
+
+Preview production build:
+
+```bash
+npm run preview
+```
+
+Run linting:
+
+```bash
+npm run lint
+```
+
+## Routing
+
+Current routes in src/App.tsx:
+
+- /
+- /leads
+- /activity
+
+## Data Layer
+
+- Supabase client is initialized in src/lib/supabase.ts.
+- Query hooks live in src/hooks and use TanStack Query for caching and loading states.
+- UI components should consume hooks instead of calling Supabase directly where possible.
+
+## UX and Component Practices
+
+- Keep page components focused on orchestration.
+- Keep reusable logic in hooks and pure helpers.
+- Prefer typed props and shared types in src/types.
+- Keep visual tokens and shared utility classes consistent.
+
+## Production Practices
+
+- Inject environment variables at deploy time.
+- Use CI checks for lint and build before merge.
+- Enable source map handling and error monitoring in production.
+- Serve static build via CDN or edge hosting.
+- Restrict Supabase RLS policies to minimum required access.
+
+## Troubleshooting
+
+Blank page or data errors:
+
+- Verify frontend/.env.local exists and has valid VITE values.
+- Restart dev server after changing environment variables.
+
+Build fails on type errors:
+
+- Run npm run lint and address warnings/errors before build.
+
+Supabase request errors:
+
+- Confirm project URL/key pair and table/RLS configuration.
