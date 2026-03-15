@@ -95,22 +95,17 @@ export function ReviewModal({ lead, onClose }: ReviewModalProps) {
   const { data: existing, isLoading } = useReview(lead?.npi ?? "");
   const { mutate: upsert, isPending } = useUpsertReview();
 
-  const [rating, setRating] = useState(0);
+  const [rating, setRating] = useState<number | undefined>(undefined);
   const [hovered, setHovered] = useState(0);
-  const [status, setStatus] = useState("contacted");
-  const [reviewText, setReview] = useState("");
+  const [status, setStatus] = useState<string | undefined>(undefined);
+  const [reviewText, setReview] = useState<string | undefined>(undefined);
   const [saved, setSaved] = useState(false);
-  const [prefilled, setPrefilled] = useState(false);
-
-  if (existing && !prefilled) {
-    setRating(existing.rating);
-    setStatus(existing.status);
-    setReview(existing.review_text ?? "");
-    setPrefilled(true);
-  }
+  const resolvedRating = rating ?? existing?.rating ?? 0;
+  const effectiveStatus = status ?? existing?.status ?? "";
+  const resolvedReviewText = reviewText ?? existing?.review_text ?? "";
 
   // Use hovered value for preview, fall back to selected rating
-  const activeRating = hovered || rating;
+  const activeRating = hovered || resolvedRating;
   const accentColor = activeRating ? RATING_COLORS[activeRating] : "#2dd4bf";
   const isEdit = !!existing; // True = editing, False = first submission
 
@@ -133,9 +128,14 @@ export function ReviewModal({ lead, onClose }: ReviewModalProps) {
     );
 
   function handleSubmit() {
-    if (!lead || rating === 0) return;
+    if (!lead || resolvedRating === 0) return;
     upsert(
-      { npi: lead.npi, rating, review_text: reviewText, status },
+      {
+        npi: lead.npi,
+        rating: resolvedRating,
+        review_text: resolvedReviewText,
+        status: effectiveStatus,
+      },
       {
         onSuccess: () => {
           setSaved(true);
@@ -267,7 +267,7 @@ export function ReviewModal({ lead, onClose }: ReviewModalProps) {
                     onClick={() => setStatus(opt.value)}
                     className="px-3 py-1.5 rounded-lg text-xs border transition-all duration-150"
                     style={
-                      status === opt.value
+                      effectiveStatus === opt.value
                         ? {
                             color: opt.color,
                             background: opt.bg,
@@ -293,7 +293,7 @@ export function ReviewModal({ lead, onClose }: ReviewModalProps) {
                 <span className="normal-case text-slate-600">(optional)</span>
               </label>
               <textarea
-                value={reviewText}
+                value={resolvedReviewText}
                 onChange={(e) => setReview(e.target.value)}
                 placeholder="Add notes about this lead..."
                 rows={3}
@@ -307,7 +307,7 @@ export function ReviewModal({ lead, onClose }: ReviewModalProps) {
             {/* Submit button — disabled if no rating selected or request in-flight */}
             <button
               onClick={handleSubmit}
-              disabled={rating === 0 || isPending || saved}
+              disabled={resolvedRating === 0 || isPending || saved}
               className="w-full py-3 rounded-xl text-sm font-medium transition-all duration-200
                          disabled:opacity-40 disabled:cursor-not-allowed
                          flex items-center justify-center gap-2"

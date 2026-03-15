@@ -63,61 +63,75 @@ export function LeadRow({
     <motion.tr
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: index * 0.03 }} // Staggered cascade
+      transition={{ duration: 0.3, delay: index * 0.03 }}
       className="border-b border-white/5 hover:bg-white/3 cursor-pointer transition-colors group"
     >
-      {/* Score ring — circular SVG indicator with score number inside */}
-      <td className="px-4 py-3 w-16" onClick={onClick}>
+      {/* Score */}
+      <td className="px-3 py-3 w-14" onClick={onClick}>
         <ScoreRing score={lead.lead_score} />
       </td>
 
-      {/* Physician name + NPI in monospace below */}
-      <td className="px-4 py-3" onClick={onClick}>
-        <div className="font-medium text-white text-sm group-hover:text-teal-300 transition-colors">
+      {/* Physician name + NPI */}
+      <td className="px-3 py-3 max-w-[160px]" onClick={onClick}>
+        <div className="font-medium text-white text-sm group-hover:text-teal-300 transition-colors truncate">
           {lead.full_name}
         </div>
-        <div className="text-xs text-slate-500 mt-0.5 font-mono">
+        <div className="text-xs text-slate-500 mt-0.5 font-mono truncate">
           {lead.npi}
         </div>
       </td>
 
-      {/* Specialty — hidden on mobile (md breakpoint) */}
-      <td className="px-4 py-3 hidden md:table-cell" onClick={onClick}>
-        <div className="text-sm text-slate-300">{lead.specialty_category}</div>
-        <div className="text-xs text-slate-500 mt-0.5 truncate max-w-[200px]">
+      {/* Specialty — visible from lg */}
+      <td
+        className="px-3 py-3 hidden lg:table-cell max-w-[180px]"
+        onClick={onClick}
+      >
+        <div className="text-sm text-slate-300 truncate">
+          {lead.specialty_category}
+        </div>
+        <div className="text-xs text-slate-500 mt-0.5 truncate">
           {lead.specialty}
         </div>
       </td>
 
-      {/* Organization — hidden on tablet (lg breakpoint) */}
-      <td className="px-4 py-3 hidden lg:table-cell" onClick={onClick}>
+      {/* Organization — visible from xl */}
+      <td
+        className="px-3 py-3 hidden xl:table-cell max-w-[160px]"
+        onClick={onClick}
+      >
         <div className="flex items-center gap-1.5 text-sm text-slate-400">
           <Building2 size={12} className="text-slate-600 shrink-0" />
-          <span className="truncate max-w-[180px]">
-            {lead.organization_name}
+          <span className="truncate">{lead.organization_name}</span>
+        </div>
+      </td>
+
+      {/* Email — visible from lg, truncated with max-w */}
+      <td
+        className="px-3 py-3 hidden lg:table-cell max-w-[200px]"
+        onClick={onClick}
+      >
+        <div className="flex items-center gap-1.5">
+          <Mail size={12} className="text-teal-500 shrink-0" />
+          <span className="text-teal-300 font-mono text-xs truncate block">
+            {lead.email}
           </span>
         </div>
       </td>
 
-      {/* Email — teal color to signal it's the key enriched field */}
-      <td className="px-4 py-3 hidden lg:table-cell" onClick={onClick}>
-        <div className="flex items-center gap-1.5">
-          <Mail size={12} className="text-teal-500 shrink-0" />
-          <span className="text-teal-300 font-mono text-xs">{lead.email}</span>
-        </div>
-      </td>
-
-      {/* Location — hidden on smaller desktops (xl breakpoint) */}
-      <td className="px-4 py-3 hidden xl:table-cell" onClick={onClick}>
+      {/* Location — visible from 2xl only */}
+      <td
+        className="px-3 py-3 hidden 2xl:table-cell whitespace-nowrap"
+        onClick={onClick}
+      >
         <div className="flex items-center gap-1 text-xs text-slate-500">
-          <MapPin size={11} />
+          <MapPin size={11} className="shrink-0" />
           {lead.city}, {lead.state}
         </div>
       </td>
 
       {/* Tier + Confidence badges */}
-      <td className="px-4 py-3" onClick={onClick}>
-        <div className="flex items-center gap-1.5">
+      <td className="px-3 py-3 w-32" onClick={onClick}>
+        <div className="flex items-center gap-1 flex-wrap">
           <Badge className={getTierColor(lead.lead_tier)}>
             {lead.lead_tier}
           </Badge>
@@ -127,15 +141,15 @@ export function LeadRow({
         </div>
       </td>
 
-      {/* Review button — stopPropagation prevents drawer from opening */}
-      <td className="px-4 py-3 w-24">
+      {/* Review button */}
+      <td className="px-3 py-3 w-24">
         <button
           onClick={(e) => {
             e.stopPropagation();
             onReview();
           }}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs
-                      border transition-all duration-150
+                      border transition-all duration-150 whitespace-nowrap
                       ${
                         review
                           ? "border-transparent"

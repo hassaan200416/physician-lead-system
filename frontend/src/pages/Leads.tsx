@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { TopBar } from "../components/layout/TopBar";
 import { LeadFilters } from "../components/leads/LeadFilters";
 import { LeadTable } from "../components/leads/LeadTable";
@@ -104,7 +104,11 @@ export function Leads() {
       )}
 
       <LeadDrawer lead={selected} onClose={() => setSelected(null)} />
-      <ReviewModal lead={reviewing} onClose={() => setReviewing(null)} />
+      <ReviewModal
+        key={reviewing?.npi ?? "closed"}
+        lead={reviewing}
+        onClose={() => setReviewing(null)}
+      />
     </div>
   );
 }

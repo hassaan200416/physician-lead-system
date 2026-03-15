@@ -1,27 +1,10 @@
-/**
- * LeadTable.tsx
- * -------------
- * Renders the full leads table with header row and animated data rows.
- *
- * Builds a reviewMap from the reviews array so each LeadRow can
- * look up its review in O(1) without prop drilling or extra queries.
- *
- * Columns (responsive — some hidden on smaller screens):
- *   Score | Physician | Specialty | Organization | Email |
- *   Location | Status | Review
- */
-
 import { LeadRow } from "./LeadRow";
 import type { Lead, LeadReview } from "../../types";
 
 interface LeadTableProps {
-  /** Leads to display in the table, already filtered and paginated. */
   leads: Lead[];
-  /** All reviews fetched from Supabase — used to show rating badges. */
   reviews: LeadReview[];
-  /** Called when a row is clicked — opens the LeadDrawer. */
   onSelect: (lead: Lead) => void;
-  /** Called when the Review button is clicked — opens ReviewModal. */
   onReview: (lead: Lead) => void;
 }
 
@@ -31,35 +14,35 @@ export function LeadTable({
   onSelect,
   onReview,
 }: LeadTableProps) {
-  /**
-   * Build lookup map: npi → review
-   * Allows O(1) review lookup per row instead of O(n) array scan.
-   */
   const reviewMap = Object.fromEntries(reviews.map((r) => [r.npi, r]));
 
   return (
-    <div className="w-full overflow-x-auto">
-      <table className="w-full min-w-[640px]">
+    <div className="w-full overflow-hidden">
+      <table className="w-full">
         <thead>
           <tr className="border-b border-white/10">
-            {[
-              "Score",
-              "Physician",
-              "Specialty",
-              "Organization",
-              "Email",
-              "Location",
-              "Status",
-              "",
-            ].map((h, i) => (
-              <th
-                key={i}
-                className="px-4 py-3 text-left text-xs font-medium text-slate-500
-                           uppercase tracking-wider"
-              >
-                {h}
-              </th>
-            ))}
+            <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-14">
+              Score
+            </th>
+            <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
+              Physician
+            </th>
+            <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider hidden lg:table-cell">
+              Specialty
+            </th>
+            <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider hidden xl:table-cell">
+              Organization
+            </th>
+            <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider hidden lg:table-cell">
+              Email
+            </th>
+            <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider hidden 2xl:table-cell">
+              Location
+            </th>
+            <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-32">
+              Status
+            </th>
+            <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-24"></th>
           </tr>
         </thead>
         <tbody>
@@ -76,7 +59,6 @@ export function LeadTable({
         </tbody>
       </table>
 
-      {/* Empty state — shown when filters return no results */}
       {leads.length === 0 && (
         <div className="text-center py-16 text-slate-500">
           <p className="text-sm">No leads match your filters</p>
