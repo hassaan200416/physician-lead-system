@@ -33,7 +33,25 @@ def list_physicians(
 ) -> PhysicianListResponse:
     """
     Returns a paginated list of physicians with optional filters.
-    Default returns active physicians ordered by lead score descending.
+
+    Filters can be combined — all are applied with AND logic.
+    Results are always ordered by lead_score_current DESC so
+    highest-value leads appear first.
+
+    Args:
+        page:               Page number, 1-indexed. Default 1.
+        page_size:          Records per page. Max 500. Default 50.
+        state:              2-letter state code filter (e.g. 'TX').
+        specialty_category: NUCC campaign bucket (e.g. 'Surgeon').
+        tier:               Lead tier — 'A', 'B', 'C', or 'Archive'.
+        experience_bucket:  Experience range label from compute_scores.
+        is_active:          Filter by NPI active status. Default True.
+        min_score:          Minimum lead_score_current to include.
+
+    Returns:
+        PhysicianListResponse with total count, page info,
+        and list of PhysicianResponse objects each including
+        nested practice_locations and licenses.
     """
     filters: list[str] = []
     params: dict[str, Any] = {}
@@ -181,7 +199,20 @@ def list_physicians(
 def get_database_stats(db: Session = Depends(get_db)) -> DatabaseStatsResponse:
     """
     Returns aggregate statistics about the physician database.
-    Useful for dashboard and reporting.
+
+    Runs multiple aggregate queries and returns them in a single
+    response. Used by the manager dashboard and reporting tools.
+
+    Returns:
+        DatabaseStatsResponse with:
+            total_physicians:    All physicians in DB
+            active_physicians:   Physicians with active NPI
+            tier_a/b/c_count:    Count per lead tier
+            archive_count:       Physicians below score threshold
+            total_organizations: Unique organizations clustered
+            specialty_breakdown: Top 10 specialty categories by count
+            state_breakdown:     Top 15 states by physician count
+            last_sync:           Timestamp of most recent completed ETL
     """
     stats = db.execute(text("""
         SELECT
@@ -242,7 +273,19 @@ def get_database_stats(db: Session = Depends(get_db)) -> DatabaseStatsResponse:
 @router.get("/{npi}", response_model=PhysicianResponse)
 def get_physician(npi: str, db: Session = Depends(get_db)) -> PhysicianResponse:
     """
-    Returns full profile for a single physician by NPI.
+    Returns the full profile for a single physician by NPI.
+
+    Fetches the physician record plus all associated practice
+    locations and license records in a single response.
+
+    Args:
+        npi: 10-digit National Provider Identifier string.
+
+    Returns:
+        PhysicianResponse with nested practice_locations and licenses.
+
+    Raises:
+        404: If no physician found with the given NPI.
     """
     row = db.execute(text("""
         SELECT

@@ -60,6 +60,28 @@ def get_physicians_to_enrich(
     limit: Optional[int] = None,
     npi: Optional[str] = None
 ):
+    """
+    Fetches physicians eligible for email enrichment from the database.
+
+    Eligibility criteria (when not querying by NPI):
+    - email IS NULL — no email found yet
+    - organization_name IS NOT NULL — required for Hunter.io lookup
+    - is_active = TRUE — skip deactivated physicians
+    - email_enrichment_attempted IS NULL or FALSE — skip already-processed
+
+    Ordered by lead_score_current DESC so highest-value leads
+    are enriched first when running with a --limit.
+
+    Args:
+        limit: Maximum number of physicians to return.
+               Used to stay within Hunter.io free tier limits.
+        npi:   If provided, fetches only this specific physician
+               regardless of enrichment status. Used for testing.
+
+    Returns:
+        List of tuples: (npi, first_name, last_name, org_name,
+                         practice_domain, lead_score, lead_tier)
+    """
     with engine.connect() as conn:
         if npi:
             result = conn.execute(text("""
@@ -94,11 +116,35 @@ def get_physicians_to_enrich(
 # ── STEP 2: FREE PRE-FILTERS ──────────────────────────────────────────────────
 
 def check_syntax(email: str) -> bool:
+    """
+    Validates basic email format using regex.
+
+    Checks that the email follows the pattern:
+    localpart@domain.tld where TLD is at least 2 characters.
+
+    Args:
+        email: Raw email string to validate.
+
+    Returns:
+        True if email passes syntax check, False otherwise.
+    """
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, email))
 
 
 def check_domain_exists(domain: str) -> bool:
+    """
+    Checks if a domain has a DNS A record (exists on the internet).
+
+    A domain without an A record is either fake, expired, or
+    misconfigured — emails to it will always bounce.
+
+    Args:
+        domain: Domain portion of the email (e.g. 'sepath.com').
+
+    Returns:
+        True if DNS A record found, False if lookup fails.
+    """
     try:
         dns.resolver.resolve(domain, 'A')
         return True
@@ -107,6 +153,19 @@ def check_domain_exists(domain: str) -> bool:
 
 
 def check_mx_record(domain: str) -> bool:
+    """
+    Checks if a domain has MX (Mail Exchange) records.
+
+    A domain without MX records cannot receive email, even if
+    the domain itself exists. This catches domains that are
+    registered but not set up for email.
+
+    Args:
+        domain: Domain to check for MX records.
+
+    Returns:
+        True if at least one MX record found, False otherwise.
+    """
     try:
         dns.resolver.resolve(domain, 'MX')
         return True
@@ -115,6 +174,27 @@ def check_mx_record(domain: str) -> bool:
 
 
 def check_catch_all(domain: str) -> bool:
+    """
+    Detects if a domain accepts all incoming emails (catch-all).
+
+    Sends an SMTP RCPT command with a randomly generated address.
+    If the mail server accepts it (code 250), the domain accepts
+    all emails regardless of whether the mailbox exists — making
+    individual address verification unreliable.
+
+    Method:
+        1. Resolve MX record to get mail server hostname
+        2. Open SMTP connection
+        3. Send RCPT TO with random address
+        4. Code 250 = catch-all; anything else = not catch-all
+
+    Args:
+        domain: Domain to probe for catch-all behaviour.
+
+    Returns:
+        True if domain is catch-all (verification unreliable),
+        False if not catch-all or if probe fails (assumed safe).
+    """
     try:
         random_email = f"randomtest_{uuid.uuid4().hex[:8]}@{domain}"
         mx_records = dns.resolver.resolve(domain, 'MX')
@@ -145,6 +225,26 @@ def check_disposable(domain: str) -> bool:
 
 
 def run_free_prefilters(email: str) -> PreFilterResult:
+    """
+    Runs all 5 free verification checks on an email address.
+
+    Checks run in order, stopping at the first failure to save time:
+        1. Syntax       — valid email format
+        2. Disposable   — not a known throwaway provider
+        3. Domain DNS   — domain exists on the internet
+        4. MX record    — domain can receive email
+        5. Catch-all    — mail server does not accept all addresses
+
+    Args:
+        email: Full email address to validate (e.g. 'john@sepath.com').
+
+    Returns:
+        PreFilterResult with:
+            passed:      True if all checks passed
+            reason:      'all_checks_passed' or the name of the failed check
+            is_catch_all: True if domain accepts all email (only when passed=True)
+            domain:       Extracted domain (only when passed=True)
+    """
     domain = email.split('@')[1] if '@' in email else ''
 
     if not check_syntax(email):
@@ -178,10 +278,32 @@ def call_hunter(
     domain: Optional[str] = None
 ) -> HunterResult:
     """
-    Calls Hunter Email Finder.
-    Pass 1: send company name
-    Pass 2: send domain directly (higher accuracy)
-    Must provide either company or domain.
+    Calls Hunter.io Email Finder API to find a physician's work email.
+
+    Supports two calling modes:
+        Pass 1 — Company name: Hunter resolves the domain internally,
+                 detects the email pattern, and returns email + domain.
+                 Less accurate but works without knowing the domain.
+        Pass 2 — Direct domain: Sends the exact domain discovered in
+                 Pass 1. Bypasses Hunter's domain guessing, typically
+                 raises confidence score by 15-25 points.
+
+    Either `company` or `domain` must be provided, not both.
+
+    Args:
+        first_name: Physician's cleaned first name.
+        last_name:  Physician's cleaned last name.
+        company:    Organization name for Pass 1 lookup.
+        domain:     Practice domain for Pass 2 lookup (e.g. 'sepath.com').
+
+    Returns:
+        HunterResult with:
+            success:             True if API call succeeded
+            email:               Found email address or None
+            score:               Hunter confidence score 0-100
+            domain:              Resolved domain (store for Pass 2 reuse)
+            verification_status: 'valid' if Hunter has verified this email
+            error:               Error type string if success=False
     """
     params: dict[str, str] = {
         "first_name": first_name,
@@ -246,6 +368,26 @@ def save_email_to_db(
     pass_number: int,
     now: datetime
 ):
+    """
+    Persists a verified email address to the database.
+
+    Performs two writes in a single transaction:
+        1. Updates the physician table with email, domain,
+           confidence level, verification status, and enrichment metadata.
+        2. Inserts an audit record into field_value_history so every
+           email acquisition is fully traceable.
+
+    Args:
+        npi:                10-digit National Provider Identifier.
+        email:              Verified email address to save.
+        score:              Hunter confidence score (0-100).
+        domain:             Practice domain extracted from email.
+        verification_status: How the email was verified
+                             ('hunter_verified', 'pre_filter_passed', etc.)
+        confidence_level:   'HIGH', 'MEDIUM', or 'LOW'.
+        pass_number:        1 if found in Pass 1, 2 if Pass 2 upgrade.
+        now:                UTC timestamp for all audit fields.
+    """
     with engine.connect() as conn:
 
         conn.execute(text("""
@@ -295,6 +437,20 @@ def save_email_to_db(
 
 
 def mark_enrichment_failed(npi: str, reason: str, now: datetime):
+    """
+    Marks a physician as enrichment attempted but no email found.
+
+    Sets email_enrichment_attempted = TRUE so this physician is
+    skipped on the next enrichment run. Prevents wasting Hunter
+    credits re-processing physicians that already failed.
+
+    Args:
+        npi:    Physician's NPI to mark.
+        reason: Failure reason string stored in email_enrichment_result.
+                Examples: 'no_result', 'hunter_low_score_35',
+                          'prefilter_domain_not_found'
+        now:    UTC timestamp for updated_at field.
+    """
     with engine.connect() as conn:
         conn.execute(text("""
             UPDATE physician SET
@@ -307,7 +463,22 @@ def mark_enrichment_failed(npi: str, reason: str, now: datetime):
 
 
 def store_domain(npi: str, domain: str, now: datetime):
-    """Stores domain even if email wasn't found — useful for Pass 2 later."""
+    """
+    Persists the practice domain discovered during Pass 1.
+
+    Stores the domain even when no email was found or when
+    the score was too low to save. This domain can be used
+    in a future enrichment run as a direct Pass 2 input,
+    bypassing Hunter's domain guessing step entirely.
+
+    Only updates if practice_domain is currently NULL — does
+    not overwrite a previously stored domain.
+
+    Args:
+        npi:    Physician's NPI.
+        domain: Discovered domain (e.g. 'sepath.com').
+        now:    UTC timestamp for updated_at field.
+    """
     with engine.connect() as conn:
         conn.execute(text("""
             UPDATE physician SET
@@ -322,6 +493,25 @@ def store_domain(npi: str, domain: str, now: datetime):
 # ── STEP 5: RE-SCORE ──────────────────────────────────────────────────────────
 
 def rescore_physician(npi: str, confidence_level: str, now: datetime):
+    """
+    Recalculates and updates a physician's lead score after email is added.
+
+    Fetches the current base score (Pillars 2+3+4), adds the email
+    Pillar 1 contribution, and re-assigns the lead tier.
+
+    Email point values:
+        HIGH confidence  → +40 points
+        MEDIUM confidence → +20 points
+
+    This is intentionally additive — the base score already reflects
+    practice structure, activity, and target fit. Email points are
+    layered on top without recalculating the other pillars.
+
+    Args:
+        npi:              Physician's NPI to rescore.
+        confidence_level: 'HIGH' or 'MEDIUM' — determines points added.
+        now:              UTC timestamp for lead_score_last_updated.
+    """
     with engine.connect() as conn:
         result = conn.execute(text("""
             SELECT lead_score_current FROM physician WHERE npi = :npi
@@ -360,7 +550,20 @@ def rescore_physician(npi: str, confidence_level: str, now: datetime):
 def sync_to_leads_table(now: datetime):
     """
     Syncs all physicians with verified emails into the leads table.
-    This is the actionable list — only physicians with confirmed emails.
+
+    The leads table is the actionable output of the pipeline —
+    it contains only physicians with HIGH or MEDIUM confidence
+    emails, joined with their primary practice location.
+
+    Uses INSERT ... ON CONFLICT DO UPDATE so the leads table
+    always reflects the latest email and score data. Safe to
+    run multiple times — idempotent.
+
+    Only HIGH and MEDIUM confidence levels are synced.
+    LOW confidence (catch-all domains) are excluded.
+
+    Args:
+        now: UTC timestamp used for created_at and updated_at fields.
     """
     print("\nSyncing verified emails to leads table...")
     with engine.connect() as conn:
@@ -453,6 +656,29 @@ def run_enrichment(
     limit: Optional[int] = None,
     npi: Optional[str] = None
 ):
+    """
+    Main entry point for the email enrichment pipeline.
+
+    Orchestrates the full enrichment flow for a batch of physicians:
+        1. Pull eligible physicians from DB ordered by lead score
+        2. For each physician:
+           a. Pass 1 — Hunter lookup by company name
+           b. Store domain if returned (even if no email)
+           c. Pass 2 — if score < 70, retry with domain directly
+           d. Run 5-layer free pre-filters on best result
+           e. Assign confidence level (HIGH / MEDIUM / LOW)
+           f. Save email + update physician score and tier
+        3. Sync all verified emails to leads table
+        4. Print summary statistics
+
+    Physicians that fail or return no email are marked as
+    email_enrichment_attempted = TRUE and skipped on future runs.
+
+    Args:
+        limit: Max physicians to process. Use 25 for free Hunter tier.
+               None processes all eligible physicians.
+        npi:   Process a single physician by NPI. Used for testing.
+    """
     now = datetime.now(timezone.utc)
 
     print("=" * 60)

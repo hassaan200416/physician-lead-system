@@ -26,9 +26,25 @@ def export_leads(
     db: Session = Depends(get_db)
 ) -> StreamingResponse:
     """
-    Exports physician leads as a CSV file.
-    Filtered by tier, state, specialty, or score.
-    Only exports records with at least an address.
+    Exports physician leads as a downloadable CSV file.
+
+    Applies the same filter logic as list_physicians but
+    returns a streaming CSV response instead of JSON.
+    Joins with primary practice location for address fields.
+
+    Only active physicians with at least one address are included.
+    Results ordered by lead_score_current DESC.
+
+    Args:
+        tier:               Filter by lead tier ('A', 'B', 'C').
+        state:              Filter by state code.
+        specialty_category: Filter by NUCC campaign bucket.
+        min_score:          Minimum lead score to include.
+        limit:              Max records to export. Hard cap 5000.
+
+    Returns:
+        StreamingResponse — CSV file download named
+        'physician_leads.csv' with 18 columns.
     """
     filters = ["p.is_active = TRUE"]
     params: dict[str, Any] = {}
@@ -122,7 +138,19 @@ def get_sync_logs(
     limit: int = Query(10, le=50),
     db: Session = Depends(get_db)
 ) -> list[SyncLogResponse]:
-    """Returns the most recent ETL sync log entries."""
+    """
+    Returns the most recent ETL sync log entries.
+
+    Each entry represents one full run of ingest_nppes.py,
+    including record counts, error rate, duration, and status.
+    Useful for monitoring pipeline health and diagnosing issues.
+
+    Args:
+        limit: Number of recent logs to return. Max 50. Default 10.
+
+    Returns:
+        List of SyncLogResponse ordered by most recent first.
+    """
     rows = db.execute(text("""
         SELECT
             sync_id::text, sync_started_at, sync_completed_at,
@@ -163,8 +191,29 @@ def record_call_outcome(
 ) -> dict[str, str]:
     """
     Records the outcome of a call attempt for a physician.
-    Updates call count and last call timestamp.
-    This feeds back into the lead score over time.
+
+    Increments call_attempt_count, stores the outcome string,
+    and updates last_called_at. If outcome is 'do_not_call',
+    applies a -20 point score penalty and recalculates tier.
+
+    Valid outcomes:
+        answered         — physician picked up
+        voicemail        — reached voicemail
+        wrong_number     — number does not belong to physician
+        do_not_call      — physician requested no contact (-20pts)
+        interested       — physician expressed interest
+        not_interested   — physician declined
+
+    Args:
+        npi:     Physician's NPI.
+        outcome: One of the valid outcome strings above.
+
+    Returns:
+        Dict with npi, outcome_recorded, and confirmation message.
+
+    Raises:
+        400: If outcome is not one of the valid values.
+        404: If physician NPI not found.
     """
     valid_outcomes = {
         "answered", "voicemail", "wrong_number",
@@ -223,7 +272,16 @@ def record_call_outcome(
 def pipeline_summary(db: Session = Depends(get_db)) -> dict[str, Any]:
     """
     Returns a high-level summary of the lead pipeline.
-    Useful for manager dashboards and reporting.
+
+    Aggregates tier distribution, experience breakdown, top states,
+    and last sync status into a single response for manager reporting.
+
+    Returns:
+        Dict with:
+            tier_breakdown:       List of {tier, count, avg_score}
+            experience_breakdown: List of {bucket, count}
+            top_states:           Top 10 states by physician count
+            last_sync:            Most recent ETL run metadata
     """
     tiers = db.execute(text("""
         SELECT

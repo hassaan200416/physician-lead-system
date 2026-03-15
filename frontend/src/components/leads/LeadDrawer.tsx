@@ -1,3 +1,24 @@
+/**
+ * LeadDrawer.tsx
+ * --------------
+ * Slide-in side panel showing full detail for a selected lead.
+ *
+ * Triggered by clicking any row in LeadTable.
+ * Slides in from the right with a spring animation.
+ * Clicking the backdrop or X button closes it.
+ *
+ * Layout:
+ *   - Sticky header: physician name + NPI + close button
+ *   - Score card: tier badge, confidence badge, score ring
+ *   - Contact section: email, verification status, confidence score
+ *   - Practice section: organization, address, city/state/zip
+ *   - Professional section: specialty, category, experience, licenses
+ *
+ * InfoRow is a small internal component that renders a labeled
+ * field with an icon. Returns null when value is empty so sections
+ * with missing data don't show blank rows.
+ */
+
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -15,10 +36,16 @@ import { getTierColor, getConfidenceColor } from "../../lib/utils";
 import type { Lead } from "../../types";
 
 interface LeadDrawerProps {
+  /** Lead to display. Null when drawer is closed. */
   lead: Lead | null;
+  /** Called when backdrop or X button is clicked. */
   onClose: () => void;
 }
 
+/**
+ * Single labeled field row used inside the drawer sections.
+ * Renders nothing if value is falsy — prevents empty rows.
+ */
 function InfoRow({
   icon: Icon,
   label,
@@ -45,7 +72,7 @@ export function LeadDrawer({ lead, onClose }: LeadDrawerProps) {
     <AnimatePresence>
       {lead && (
         <>
-          {/* Backdrop */}
+          {/* Backdrop — clicking closes the drawer */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -54,18 +81,18 @@ export function LeadDrawer({ lead, onClose }: LeadDrawerProps) {
             className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
           />
 
-          {/* Drawer */}
+          {/* Drawer panel — spring animation from right edge */}
           <motion.div
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 30, stiffness: 300 }}
             className="fixed right-0 top-0 h-screen w-96 bg-navy-900 border-l border-white/10
-                       z-50 overflow-y-auto"
+                       z-50 overflow-y-auto isolate"
           >
-            {/* Header */}
+            {/* Sticky header — z-10 ensures it stays above scrolling content */}
             <div
-              className="sticky top-0 bg-navy-900/95 backdrop-blur-sm border-b border-white/10
+              className="sticky top-0 z-10 bg-navy-900 border-b border-white/10
                             px-5 py-4 flex items-start justify-between"
             >
               <div>
@@ -85,7 +112,7 @@ export function LeadDrawer({ lead, onClose }: LeadDrawerProps) {
             </div>
 
             <div className="p-5 space-y-5">
-              {/* Score + Tier */}
+              {/* Score card — tier badge, confidence badge, score ring */}
               <div className="glass rounded-xl p-4 flex items-center justify-between">
                 <div>
                   <div className="text-xs text-slate-500 mb-1 uppercase tracking-wider">
@@ -107,7 +134,7 @@ export function LeadDrawer({ lead, onClose }: LeadDrawerProps) {
                 <ScoreRing score={lead.lead_score} size={56} />
               </div>
 
-              {/* Contact */}
+              {/* Contact — email address, verification method, confidence score */}
               <div>
                 <h3 className="text-xs text-slate-500 uppercase tracking-wider mb-3">
                   Contact
@@ -127,7 +154,7 @@ export function LeadDrawer({ lead, onClose }: LeadDrawerProps) {
                 </div>
               </div>
 
-              {/* Practice */}
+              {/* Practice — organization name and full address */}
               <div>
                 <h3 className="text-xs text-slate-500 uppercase tracking-wider mb-3">
                   Practice
@@ -153,7 +180,7 @@ export function LeadDrawer({ lead, onClose }: LeadDrawerProps) {
                 </div>
               </div>
 
-              {/* Professional */}
+              {/* Professional — specialty, experience, license count */}
               <div>
                 <h3 className="text-xs text-slate-500 uppercase tracking-wider mb-3">
                   Professional

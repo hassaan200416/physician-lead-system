@@ -1,3 +1,20 @@
+/**
+ * LeadRow.tsx
+ * -----------
+ * Single animated table row for one lead.
+ *
+ * Animates in with a staggered fade+slide using Framer Motion.
+ * The delay is index * 30ms so rows cascade in one by one.
+ *
+ * Clicking the row (any cell except Review button) opens the
+ * LeadDrawer. The Review button uses e.stopPropagation() to
+ * prevent the drawer from opening at the same time.
+ *
+ * The review button changes appearance based on review state:
+ *   - No review:  grey "Review" text with message icon
+ *   - Has review: shows rating (e.g. "8/10") in matching color
+ */
+
 import { motion } from "framer-motion";
 import { Mail, MapPin, Building2, Star, MessageSquare } from "lucide-react";
 import { Badge } from "../ui/Badge";
@@ -6,12 +23,34 @@ import { getTierColor, getConfidenceColor } from "../../lib/utils";
 import type { Lead, LeadReview } from "../../types";
 
 interface LeadRowProps {
+  /** Full lead data for this row. */
   lead: Lead;
+  /** Row index used to calculate staggered animation delay. */
   index: number;
+  /** Existing review for this lead, if any. Undefined = not yet reviewed. */
   review?: LeadReview;
+  /** Called when the row is clicked — opens LeadDrawer. */
   onClick: () => void;
+  /** Called when the Review button is clicked — opens ReviewModal. */
   onReview: () => void;
 }
+
+/**
+ * Color scale for rating values 1-10.
+ * Red (poor) → orange → yellow → green → teal (excellent).
+ */
+const RATING_COLORS: Record<number, string> = {
+  1: "#ef4444",
+  2: "#f97316",
+  3: "#f97316",
+  4: "#eab308",
+  5: "#eab308",
+  6: "#84cc16",
+  7: "#22c55e",
+  8: "#10b981",
+  9: "#14b8a6",
+  10: "#2dd4bf",
+};
 
 export function LeadRow({
   lead,
@@ -20,32 +59,19 @@ export function LeadRow({
   onClick,
   onReview,
 }: LeadRowProps) {
-  const RATING_COLORS: Record<number, string> = {
-    1: "#ef4444",
-    2: "#f97316",
-    3: "#f97316",
-    4: "#eab308",
-    5: "#eab308",
-    6: "#84cc16",
-    7: "#22c55e",
-    8: "#10b981",
-    9: "#14b8a6",
-    10: "#2dd4bf",
-  };
-
   return (
     <motion.tr
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: index * 0.03 }}
+      transition={{ duration: 0.3, delay: index * 0.03 }} // Staggered cascade
       className="border-b border-white/5 hover:bg-white/3 cursor-pointer transition-colors group"
     >
-      {/* Score */}
+      {/* Score ring — circular SVG indicator with score number inside */}
       <td className="px-4 py-3 w-16" onClick={onClick}>
         <ScoreRing score={lead.lead_score} />
       </td>
 
-      {/* Name */}
+      {/* Physician name + NPI in monospace below */}
       <td className="px-4 py-3" onClick={onClick}>
         <div className="font-medium text-white text-sm group-hover:text-teal-300 transition-colors">
           {lead.full_name}
@@ -55,7 +81,7 @@ export function LeadRow({
         </div>
       </td>
 
-      {/* Specialty */}
+      {/* Specialty — hidden on mobile (md breakpoint) */}
       <td className="px-4 py-3 hidden md:table-cell" onClick={onClick}>
         <div className="text-sm text-slate-300">{lead.specialty_category}</div>
         <div className="text-xs text-slate-500 mt-0.5 truncate max-w-[200px]">
@@ -63,7 +89,7 @@ export function LeadRow({
         </div>
       </td>
 
-      {/* Organization */}
+      {/* Organization — hidden on tablet (lg breakpoint) */}
       <td className="px-4 py-3 hidden lg:table-cell" onClick={onClick}>
         <div className="flex items-center gap-1.5 text-sm text-slate-400">
           <Building2 size={12} className="text-slate-600 shrink-0" />
@@ -73,7 +99,7 @@ export function LeadRow({
         </div>
       </td>
 
-      {/* Email */}
+      {/* Email — teal color to signal it's the key enriched field */}
       <td className="px-4 py-3 hidden lg:table-cell" onClick={onClick}>
         <div className="flex items-center gap-1.5">
           <Mail size={12} className="text-teal-500 shrink-0" />
@@ -81,7 +107,7 @@ export function LeadRow({
         </div>
       </td>
 
-      {/* Location */}
+      {/* Location — hidden on smaller desktops (xl breakpoint) */}
       <td className="px-4 py-3 hidden xl:table-cell" onClick={onClick}>
         <div className="flex items-center gap-1 text-xs text-slate-500">
           <MapPin size={11} />
@@ -89,7 +115,7 @@ export function LeadRow({
         </div>
       </td>
 
-      {/* Status badges */}
+      {/* Tier + Confidence badges */}
       <td className="px-4 py-3" onClick={onClick}>
         <div className="flex items-center gap-1.5">
           <Badge className={getTierColor(lead.lead_tier)}>
@@ -101,7 +127,7 @@ export function LeadRow({
         </div>
       </td>
 
-      {/* Review button — does NOT trigger row click */}
+      {/* Review button — stopPropagation prevents drawer from opening */}
       <td className="px-4 py-3 w-24">
         <button
           onClick={(e) => {
