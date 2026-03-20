@@ -16,6 +16,75 @@ from api.schemas.physician_schema import SyncLogResponse
 router = APIRouter()
 
 
+@router.get("")
+def get_leads(
+    tier: Optional[str] = Query(None),
+    contact_completeness: Optional[str] = Query(None),
+    include_uncontactable: bool = Query(False),
+    state: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Returns leads with contact completeness fields and pagination.
+
+    Filters:
+    - tier: A / B / C
+    - contact_completeness: EXCELLENT / GOOD / PARTIAL / UNCONTACTABLE
+    - include_uncontactable: False by default
+    - state: two-letter state code
+    """
+    filters: list[str] = []
+    params: dict[str, Any] = {"skip": skip, "limit": limit}
+
+    if tier:
+        filters.append("lead_tier = :tier")
+        params["tier"] = tier.upper()
+
+    if contact_completeness:
+        filters.append("contact_completeness = :contact_completeness")
+        params["contact_completeness"] = contact_completeness.upper()
+
+    if not include_uncontactable:
+        filters.append("COALESCE(is_uncontactable, FALSE) = FALSE")
+
+    if state:
+        filters.append("state = :state")
+        params["state"] = state.upper()
+
+    where_clause = ""
+    if filters:
+        where_clause = "WHERE " + " AND ".join(filters)
+
+    total_row = db.execute(
+        text(f"SELECT COUNT(*) FROM leads {where_clause}"),
+        params,
+    ).fetchone()
+    total = int(total_row[0]) if total_row and total_row[0] is not None else 0
+
+    rows = db.execute(
+        text(
+            f"""
+            SELECT *
+            FROM leads
+            {where_clause}
+            ORDER BY lead_score DESC NULLS LAST
+            OFFSET :skip
+            LIMIT :limit
+            """
+        ),
+        params,
+    ).mappings().all()
+
+    return {
+        "total": total,
+        "leads": [dict(row) for row in rows],
+        "skip": skip,
+        "limit": limit,
+    }
+
+
 @router.get("/export")
 def export_leads(
     tier: Optional[str] = Query(None, description="Filter by tier: A, B, C"),

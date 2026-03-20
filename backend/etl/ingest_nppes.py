@@ -392,19 +392,24 @@ def process_row(row: pd.Series, ref: ReferenceData, org_name_map: dict[str, str]
         except Exception:
             pass
 
-    score_result = compute_lead_score(
-        practice_size=None,
-        solo_practice=False,
-        large_system=False,
-        is_active_npi=is_active,
-        has_valid_license=has_valid_license,
-        nppes_updated_recently=nppes_updated_recently,
-        has_valid_grad_year=grad_valid and exp_quality == "actual",
-        specialty_match=True,
-        experience_match=True,
-        geo_match=True,
-        multi_state=multi_state,
-    )
+    score_result = compute_lead_score({
+        "mobile_phone": None,
+        "phone_confidence": None,
+        "phone_dnc_clear": None,
+        "email": None,
+        "email_confidence": None,
+        "practice_email": None,
+        "org_size": 1,
+        "npi_status": "A" if is_active else "I",
+        "license_valid": has_valid_license,
+        "last_update_recent": nppes_updated_recently,
+        "graduation_year": grad_year if grad_valid and exp_quality == "actual" else None,
+        "is_target_specialty": True,
+        "experience_bucket": "10-20",
+        "state": state,
+        "target_states": [state] if state else [],
+        "multi_state_license": multi_state,
+    })
 
     # ── ASSEMBLE RESULT ───────────────────────────────────
     return {
@@ -439,8 +444,8 @@ def process_row(row: pd.Series, ref: ReferenceData, org_name_map: dict[str, str]
         "gender_normalized": gender_norm,
         "gender_source": gender_src,
         "gender_confidence": gender_conf,
-        "lead_score_current": score_result["lead_score_current"],
-        "lead_tier": score_result["lead_tier"],
+        "lead_score_current": score_result["total_score"],
+        "lead_tier": score_result["tier"],
         "organization_name": org_name,
         "address": {
             "address_line_1": addr1,
@@ -1128,24 +1133,30 @@ def update_scores_with_org_data(now: datetime):
             solo = row[6] or (practice_size == 1)
             large_system = row[7] or False
 
-            score_result = compute_lead_score(
-                practice_size=practice_size,
-                solo_practice=solo,
-                large_system=large_system,
-                is_active_npi=is_active,
-                has_valid_license=(license_count > 0),
-                nppes_updated_recently=True,
-                has_valid_grad_year=(exp_quality == "actual"),
-                specialty_match=True,
-                experience_match=True,
-                geo_match=True,
-                multi_state=multi_state,
-            )
+            org_size = 999 if large_system else int(practice_size)
+            score_result = compute_lead_score({
+                "mobile_phone": None,
+                "phone_confidence": None,
+                "phone_dnc_clear": None,
+                "email": None,
+                "email_confidence": None,
+                "practice_email": None,
+                "org_size": org_size,
+                "npi_status": "A" if is_active else "I",
+                "license_valid": (license_count > 0),
+                "last_update_recent": True,
+                "graduation_year": 2000 if exp_quality == "actual" else None,
+                "is_target_specialty": True,
+                "experience_bucket": "10-20",
+                "state": None,
+                "target_states": [],
+                "multi_state_license": multi_state,
+            })
 
             updates.append({
                 "npi": npi,
-                "score": score_result["lead_score_current"],
-                "tier": score_result["lead_tier"],
+                "score": score_result["total_score"],
+                "tier": score_result["tier"],
                 "now": now,
             })
 

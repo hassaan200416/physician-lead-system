@@ -13,3 +13,5 @@ pydantic==2.9.2
 pydantic-settings==2.5.2
 python-dateutil==2.9.0
 schedule==1.2.2
+peopledatalabs==0.5.0
+twilio==8.5.0
