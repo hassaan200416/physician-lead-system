@@ -1,5 +1,14 @@
+/**
+ * Badge.tsx
+ * ---------
+ * Pill-shaped label for tier, category, and confidence values.
+ * Caller supplies color classes via `className`; use the helper
+ * functions getCategoryColor / getTierColor / getConfidenceColor
+ * from lib/utils.ts to keep colors consistent.
+ */
 interface BadgeProps {
   children: React.ReactNode;
+  /** Tailwind colour classes applied to the badge (text, bg, border). */
   className?: string;
 }
 

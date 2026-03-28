@@ -12,11 +12,14 @@ from api.routes import physicians, leads
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Runs on startup
+    """
+    FastAPI lifespan handler — runs startup logic before yield,
+    shutdown logic after. Verifies the database connection on startup
+    so a misconfigured DATABASE_URL fails fast rather than at first request.
+    """
     print("Starting Physician Lead System API...")
     verify_connection()
     yield
-    # Runs on shutdown
     print("Shutting down API...")
 
 

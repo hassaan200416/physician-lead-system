@@ -371,13 +371,24 @@ def recalculate_score_after_phone(
     physician: dict[str, Any],
     previous_reachability: Optional[int] = None,
 ) -> dict[str, Any]:
-    """Recalculate reachability and derived score/tier fields."""
+    """
+    Recalculates Pillar 1 (Reachability) after phone data is added and
+    updates the total lead score and tier without touching the other three pillars.
+
+    The delta approach preserves scores from pillars 2-4 that were computed
+    at ingest time and are not available here:
+        other_pillars = old_total_score - old_p1
+        new_total     = other_pillars   + new_p1
+
+    Returns a dict with updated keys: lead_score_current, lead_tier,
+    reachability_score, contact_completeness.
+    """
     p1 = compute_reachability_score(
         mobile_phone=physician.get("mobile_phone"),
         phone_confidence=physician.get("phone_confidence"),
         phone_dnc_clear=physician.get("phone_dnc_clear"),
         personal_email=physician.get("email"),
-        email_confidence=physician.get("email_confidence_level"),
+        personal_email_confidence=physician.get("email_confidence_level"),
         practice_email=physician.get("practice_email"),
     )
 
@@ -401,7 +412,18 @@ def recalculate_score_after_phone(
 
 
 def sync_to_leads(npi: str, db: Session) -> None:
-    """Upsert one physician record into the leads table."""
+    """
+    Upserts one physician into the denormalised `leads` table.
+
+    The `leads` table is a flat, query-optimised view of the physician + primary
+    address join that the frontend reads directly via Supabase. It is written by
+    enrichment scripts (not by ingest_nppes.py) because a physician only enters
+    leads once they have at least one contact signal (email or phone).
+
+    Only inserts/updates when lead_tier IN ('A', 'B', 'C') — Archive rows never
+    appear in leads. Uses ON CONFLICT (npi) DO UPDATE so it is safe to call
+    repeatedly for the same NPI.
+    """
     now = datetime.now(timezone.utc)
 
     db.execute(
@@ -562,7 +584,7 @@ def enrich_phones(npi_filter: Optional[str] = None, limit: Optional[int] = None)
                 phone_confidence=physician.get("phone_confidence"),
                 phone_dnc_clear=physician.get("phone_dnc_clear"),
                 personal_email=physician.get("email"),
-                email_confidence=physician.get("email_confidence_level"),
+                personal_email_confidence=physician.get("email_confidence_level"),
                 practice_email=physician.get("practice_email"),
             )
 
@@ -867,7 +889,12 @@ def preview_phone_coverage() -> None:
 
 
 def backfill_leads_table() -> None:
-    """Backfill A/B/C physicians to leads table with completeness flags."""
+    """
+    One-time backfill that pushes all existing A/B/C physicians into the
+    leads table. Run this after a bulk phone enrichment or when the leads
+    table is first created. Normal enrichment calls sync_to_leads per NPI;
+    this function handles the initial population of the whole table.
+    """
     db = SessionLocal()
     try:
         rows = db.execute(

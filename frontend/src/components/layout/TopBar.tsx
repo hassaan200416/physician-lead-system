@@ -1,8 +1,17 @@
+/**
+ * TopBar.tsx
+ * ----------
+ * Sticky page header bar rendered at the top of every page.
+ * Shows the page title on the left. When `onSearch` is provided,
+ * renders a search input on the right (used only on the Leads page).
+ */
 import { Search } from "lucide-react";
 
 interface TopBarProps {
   title: string;
+  /** Current search string (controlled). Omit to hide the search input. */
   search?: string;
+  /** Called on every keystroke with the updated search value. */
   onSearch?: (val: string) => void;
 }
 

@@ -1,3 +1,10 @@
+/**
+ * Sidebar.tsx
+ * -----------
+ * Fixed 64px-wide vertical navigation bar on the left edge of the screen.
+ * Icon-only links with tooltip labels on hover.
+ * Active route highlighted with teal accent.
+ */
 import { NavLink } from "react-router-dom";
 import { LayoutDashboard, Users, Activity } from "lucide-react";
 

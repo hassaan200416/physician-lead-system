@@ -1,3 +1,9 @@
+/**
+ * StatCard.tsx
+ * ------------
+ * Animated metric tile used in the Dashboard pipeline overview grid.
+ * Fades and slides up on mount; delay staggers cards when rendered in a loop.
+ */
 import { motion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 
@@ -5,7 +11,9 @@ interface StatCardProps {
   label: string;
   value: number | string;
   icon: LucideIcon;
+  /** Hex accent color for the icon background and icon itself. Default: teal. */
   accent?: string;
+  /** Framer Motion mount delay in seconds. Stagger multiple cards by passing 0, 0.05, 0.1 … */
   delay?: number;
 }
 

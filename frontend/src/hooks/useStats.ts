@@ -1,3 +1,18 @@
+/**
+ * useStats.ts
+ * -----------
+ * Fetches aggregate pipeline statistics from the `leads` table.
+ *
+ * Pulls the minimal column set needed for the dashboard (tier, category,
+ * confidence, score) in a single query and derives all counts client-side.
+ * Cached for 60 seconds — stats don't need to be real-time.
+ *
+ * Returns a LeadStats object:
+ *   total / tier_a / tier_b / tier_c  — score-based tier counts
+ *   high_confidence                   — leads with HIGH email confidence
+ *   avg_score                         — mean lead score across all leads
+ *   category_a / category_b           — contact-category counts (A/B)
+ */
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
 import type { LeadStats } from '../types'

@@ -18,7 +18,14 @@ NPPES_DIR = PROJECT_ROOT / "raw_data" / "nppes"
 
 
 def find_latest_nppes_file():
-    """Finds the most recent NPPES CSV file."""
+    """
+    Returns the most recent NPPES CSV in raw_data/nppes/.
+
+    Sorts lexicographically — relies on the CMS naming convention
+    'npidata_pfile_YYYYMMDD-YYYYMMDD.csv' where the end date is
+    embedded in the filename, so alphabetical order equals chronological.
+    Returns None if no matching file is found.
+    """
     csv_files = list(NPPES_DIR.rglob("npidata_pfile*.csv"))
     if csv_files:
         return sorted(csv_files)[-1]

@@ -84,6 +84,16 @@ def normalize_name(raw: str) -> str:
 
 
 def normalize_credential(raw: str) -> str:
+    """
+    Normalises a physician credential string to one of: MD | DO | MBBS | OTHER | ''.
+
+    Strips dots, spaces, and casing before matching so 'M.D.', 'md', 'MD PhD'
+    all resolve to 'MD'. MBBS is checked first because it contains 'MB' which
+    would otherwise match the MD startswith test.
+
+    Returns:
+        'MD' | 'DO' | 'MBBS' | 'OTHER' | '' (empty if input is blank)
+    """
     if not raw:
         return ""
 
@@ -232,7 +242,14 @@ def score_address_confidence(
 ) -> float:
     """
     Calculates address confidence score (0-100).
-    Additive scoring model.
+
+    Additive model with one deduction:
+        +30  address_line_1 present and longer than 3 chars
+        +20  ZIP valid
+        +20  ZIP matches the reported state
+        -15  address is a PO Box (less reliable for practice location)
+
+    Result is clamped to [0, 100].
     """
     score = 0.0
 

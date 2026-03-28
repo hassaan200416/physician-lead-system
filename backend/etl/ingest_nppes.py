@@ -93,12 +93,16 @@ REQUIRED_COLUMNS = (
 
 CHUNK_SIZE = 50_000
 
-ReferenceData = dict[str, Any]
-ProcessedRow = dict[str, Any]
-AddressRecord = dict[str, Any]
-LicenseRecord = dict[str, Any]
-PhysicianAddressPair = tuple[str, AddressRecord]
-PhysicianLicensesPair = tuple[str, list[LicenseRecord]]
+# ── TYPE ALIASES ───────────────────────────────────────────────────────────────
+# All are plain dicts at runtime — aliases exist solely for readability
+# in function signatures so callers know what shape to expect.
+
+ReferenceData = dict[str, Any]       # loaded once from DB, passed to every row processor
+ProcessedRow = dict[str, Any]        # one physician record ready for upsert
+AddressRecord = dict[str, Any]       # one practice location record
+LicenseRecord = dict[str, Any]       # one license record
+PhysicianAddressPair = tuple[str, AddressRecord]        # (npi, address_record)
+PhysicianLicensesPair = tuple[str, list[LicenseRecord]] # (npi, [license_records])
 
 
 # ── REFERENCE DATA LOADER ──────────────────────────────────────────────────────
