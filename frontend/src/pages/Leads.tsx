@@ -1,3 +1,20 @@
+/**
+ * Leads.tsx
+ * ---------
+ * Main leads page — filter bar, table, drawer, review modal.
+ *
+ * Filter state:
+ *   category   — contact_category filter (A/B/ALL)
+ *   confidence — email confidence filter (HIGH/MEDIUM/ALL)
+ *   state      — US state code filter
+ *   search     — full-text search across name, org, email
+ *   page       — current pagination page (1-indexed)
+ *
+ * category replaces the old tier filter. It filters by
+ * contact_category (A = phone+email, B = email only) rather
+ * than the score-based lead_tier.
+ */
+
 import { useMemo, useState } from "react";
 import { TopBar } from "../components/layout/TopBar";
 import { LeadFilters } from "../components/leads/LeadFilters";
@@ -6,10 +23,10 @@ import { LeadDrawer } from "../components/leads/LeadDrawer";
 import { ReviewModal } from "../components/leads/ReviewModal";
 import { useLeads } from "../hooks/useLeads";
 import { useAllReviews } from "../hooks/useReviews";
-import type { Lead, TierFilter, ConfidenceFilter } from "../types";
+import type { Lead, CategoryFilter, ConfidenceFilter } from "../types";
 
 export function Leads() {
-  const [tier, setTier] = useState<TierFilter>("ALL");
+  const [category, setCategory] = useState<CategoryFilter>("ALL");
   const [confidence, setConfidence] = useState<ConfidenceFilter>("ALL");
   const [state, setState] = useState("");
   const [search, setSearch] = useState("");
@@ -18,7 +35,7 @@ export function Leads() {
   const [page, setPage] = useState(1);
 
   const { data, isLoading } = useLeads({
-    tier,
+    category,
     confidence,
     state,
     search,
@@ -26,8 +43,9 @@ export function Leads() {
   });
   const { data: reviews = [] } = useAllReviews();
 
+  // Derive unique state codes from current leads for the state dropdown
   const states = useMemo(() => {
-    const all = data?.leads?.map((l) => l.state).filter(Boolean) ?? [];
+    const all = data?.leads?.map((l) => l.state).filter(Boolean) as string[];
     return [...new Set(all)].sort();
   }, [data?.leads]);
 
@@ -43,12 +61,12 @@ export function Leads() {
       />
 
       <LeadFilters
-        tier={tier}
+        category={category}
         confidence={confidence}
         state={state}
         states={states}
-        onTier={(v) => {
-          setTier(v);
+        onCategory={(v) => {
+          setCategory(v);
           setPage(1);
         }}
         onConfidence={(v) => {
@@ -74,6 +92,7 @@ export function Leads() {
         />
       )}
 
+      {/* Pagination — only shown when total exceeds page size */}
       {data && data.total > 50 && (
         <div className="flex items-center justify-between px-6 py-3 border-t border-white/5">
           <span className="text-xs text-slate-500">

@@ -5,17 +5,23 @@
  * Queries the Supabase `leads` table with optional filters,
  * full-text search, and pagination.
  *
+ * Filter logic:
+ *   category filter → filters by contact_category (A/B) — contact-based
+ *   confidence filter → filters by email_confidence_level
+ *   state filter → filters by state code
+ *   search → searches name, organization, personal_email, email
+ *
  * Caching: Results are cached for 30 seconds via React Query.
  * Re-fetches automatically when any filter or page changes.
  */
 
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
-import type { Lead, TierFilter, ConfidenceFilter } from '../types'
+import type { Lead, CategoryFilter, ConfidenceFilter } from '../types'
 
 interface UseLeadsOptions {
-  /** Lead tier filter. 'ALL' returns all tiers. */
-  tier?: TierFilter
+  /** Contact category filter. 'ALL' returns all categories. */
+  category?: CategoryFilter
   /** Email confidence filter. 'ALL' returns all confidence levels. */
   confidence?: ConfidenceFilter
   /** 2-letter state code filter. Empty string returns all states. */
@@ -31,20 +37,18 @@ interface UseLeadsOptions {
 /**
  * Fetches a paginated, filtered list of leads from Supabase.
  *
- * Always orders results by lead_score DESC so highest-value
- * leads appear first regardless of active filters.
+ * Always orders by lead_score DESC so highest-value leads
+ * appear first regardless of active filters.
  *
- * The query key includes all filter params so React Query
- * automatically re-fetches whenever any filter changes.
+ * Only returns leads that have at least one contact signal
+ * (personal_email OR email OR mobile_phone) — trash leads
+ * are never inserted into the leads table so no extra filter needed.
  *
  * @param options - Filter, search, and pagination options.
  * @returns React Query result with `{ leads: Lead[], total: number }`.
- *
- * @example
- * const { data, isLoading } = useLeads({ tier: 'A', state: 'TX', page: 1 })
  */
 export function useLeads({
-  tier = 'ALL',
+  category = 'ALL',
   confidence = 'ALL',
   state = '',
   search = '',
@@ -52,7 +56,7 @@ export function useLeads({
   pageSize = 50,
 }: UseLeadsOptions = {}) {
   return useQuery({
-    queryKey: ['leads', tier, confidence, state, search, page],
+    queryKey: ['leads', category, confidence, state, search, page],
     queryFn: async () => {
       let query = supabase
         .from('leads')
@@ -60,16 +64,30 @@ export function useLeads({
         .order('lead_score', { ascending: false })
         .range((page - 1) * pageSize, page * pageSize - 1)
 
-      // Apply filters — only added when not at default "ALL" state
-      if (tier !== 'ALL') query = query.eq('lead_tier', tier)
-      if (confidence !== 'ALL') query = query.eq('email_confidence_level', confidence)
+      // contact_category filter — A = phone+email, B = email only
+      if (category !== 'ALL') {
+        query = query.eq('contact_category', category)
+      }
+
+      // confidence filter on personal_email_confidence (preferred)
+      // falls back to checking email_confidence_level for legacy records
+      if (confidence !== 'ALL') {
+        query = query.or(
+          `personal_email_confidence.eq.${confidence},` +
+          `email_confidence_level.eq.${confidence}`
+        )
+      }
+
       if (state) query = query.eq('state', state)
 
-      // Full-text search across 4 fields using Supabase OR filter
+      // Search across name fields, org, and both email columns
       if (search) {
         query = query.or(
-          `first_name.ilike.%${search}%,last_name.ilike.%${search}%,` +
-          `organization_name.ilike.%${search}%,email.ilike.%${search}%`
+          `first_name.ilike.%${search}%,` +
+          `last_name.ilike.%${search}%,` +
+          `organization_name.ilike.%${search}%,` +
+          `personal_email.ilike.%${search}%,` +
+          `email.ilike.%${search}%`
         )
       }
 
@@ -77,6 +95,6 @@ export function useLeads({
       if (error) throw error
       return { leads: data as Lead[], total: count ?? 0 }
     },
-    staleTime: 30_000, // Cache for 30 seconds before background refetch
+    staleTime: 30_000,
   })
 }

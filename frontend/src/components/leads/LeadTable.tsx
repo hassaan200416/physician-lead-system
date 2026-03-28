@@ -1,3 +1,17 @@
+/**
+ * LeadTable.tsx
+ * -------------
+ * Renders the full leads table with headers and rows.
+ *
+ * Column layout:
+ *   Score | Physician | Specialty | Phone | Email | Location | Status | Action
+ *
+ * Phone column replaces Organization — organization is still
+ * visible in the LeadDrawer when a row is clicked.
+ *
+ * Category badge (A/B) replaces old tier badge in Status column.
+ */
+
 import { LeadRow } from "./LeadRow";
 import type { Lead, LeadReview } from "../../types";
 
@@ -30,8 +44,9 @@ export function LeadTable({
             <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider hidden lg:table-cell">
               Specialty
             </th>
+            {/* Phone replaces Organization — org visible in drawer */}
             <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider hidden xl:table-cell">
-              Organization
+              Phone
             </th>
             <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider hidden lg:table-cell">
               Email
@@ -42,7 +57,7 @@ export function LeadTable({
             <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-32">
               Status
             </th>
-            <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-24"></th>
+            <th className="px-3 py-3 w-24" />
           </tr>
         </thead>
         <tbody>
@@ -51,7 +66,7 @@ export function LeadTable({
               key={lead.npi}
               lead={lead}
               index={i}
-              review={reviewMap[lead.npi]} // undefined if no review yet
+              review={reviewMap[lead.npi]}
               onClick={() => onSelect(lead)}
               onReview={() => onReview(lead)}
             />

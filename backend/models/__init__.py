@@ -9,6 +9,7 @@ from models.practice_location import PracticeLocation
 from models.organization import Organization, PhysicianOrganizationLink
 from models.license import License
 from models.metadata import FieldValueHistory
+from models.enrichment_source import EnrichmentSourceStats
 
 __all__ = [
     "Physician",
@@ -17,4 +18,5 @@ __all__ = [
     "PhysicianOrganizationLink",
     "License",
     "FieldValueHistory",
+    "EnrichmentSourceStats",
 ]

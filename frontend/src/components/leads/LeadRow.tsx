@@ -3,42 +3,29 @@
  * -----------
  * Single animated table row for one lead.
  *
- * Animates in with a staggered fade+slide using Framer Motion.
- * The delay is index * 30ms so rows cascade in one by one.
- *
- * Clicking the row (any cell except Review button) opens the
- * LeadDrawer. The Review button uses e.stopPropagation() to
- * prevent the drawer from opening at the same time.
- *
- * The review button changes appearance based on review state:
- *   - No review:  grey "Review" text with message icon
- *   - Has review: shows rating (e.g. "8/10") in matching color
+ * Changes from original:
+ *   - Organization column → Phone column (org visible in drawer)
+ *   - Email display uses personal_email first, falls back to email
+ *   - Status badge shows contact_category (A/B) instead of lead_tier
+ *   - Confidence badge uses personal_email_confidence first
+ *   - Phone shown with phone icon, formatted for readability
  */
 
 import { motion } from "framer-motion";
-import { Mail, MapPin, Building2, Star, MessageSquare } from "lucide-react";
+import { Mail, MapPin, Phone, Star, MessageSquare } from "lucide-react";
 import { Badge } from "../ui/Badge";
 import { ScoreRing } from "../ui/ScoreRing";
-import { getTierColor, getConfidenceColor } from "../../lib/utils";
+import { getCategoryColor, getConfidenceColor } from "../../lib/utils";
 import type { Lead, LeadReview } from "../../types";
 
 interface LeadRowProps {
-  /** Full lead data for this row. */
   lead: Lead;
-  /** Row index used to calculate staggered animation delay. */
   index: number;
-  /** Existing review for this lead, if any. Undefined = not yet reviewed. */
   review?: LeadReview;
-  /** Called when the row is clicked — opens LeadDrawer. */
   onClick: () => void;
-  /** Called when the Review button is clicked — opens ReviewModal. */
   onReview: () => void;
 }
 
-/**
- * Color scale for rating values 1-10.
- * Red (poor) → orange → yellow → green → teal (excellent).
- */
 const RATING_COLORS: Record<number, string> = {
   1: "#ef4444",
   2: "#f97316",
@@ -59,6 +46,11 @@ export function LeadRow({
   onClick,
   onReview,
 }: LeadRowProps) {
+  // Use personal_email (new canonical) first, fall back to legacy email
+  const displayEmail = lead.personal_email || lead.email;
+  const displayConfidence =
+    lead.personal_email_confidence || lead.email_confidence_level;
+
   return (
     <motion.tr
       initial={{ opacity: 0, y: 8 }}
@@ -81,7 +73,7 @@ export function LeadRow({
         </div>
       </td>
 
-      {/* Specialty — visible from lg */}
+      {/* Specialty */}
       <td
         className="px-3 py-3 hidden lg:table-cell max-w-[180px]"
         onClick={onClick}
@@ -94,31 +86,47 @@ export function LeadRow({
         </div>
       </td>
 
-      {/* Organization — visible from xl */}
+      {/* Phone — replaces Organization column */}
       <td
         className="px-3 py-3 hidden xl:table-cell max-w-[160px]"
         onClick={onClick}
       >
-        <div className="flex items-center gap-1.5 text-sm text-slate-400">
-          <Building2 size={12} className="text-slate-600 shrink-0" />
-          <span className="truncate">{lead.organization_name}</span>
-        </div>
+        {lead.mobile_phone ? (
+          <div className="flex items-center gap-1.5">
+            <Phone size={12} className="text-emerald-500 shrink-0" />
+            <span className="text-emerald-300 font-mono text-xs truncate">
+              {lead.mobile_phone}
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <Phone size={12} className="text-slate-700 shrink-0" />
+            <span className="text-slate-600 text-xs">No phone</span>
+          </div>
+        )}
       </td>
 
-      {/* Email — visible from lg, truncated with max-w */}
+      {/* Email */}
       <td
         className="px-3 py-3 hidden lg:table-cell max-w-[200px]"
         onClick={onClick}
       >
-        <div className="flex items-center gap-1.5">
-          <Mail size={12} className="text-teal-500 shrink-0" />
-          <span className="text-teal-300 font-mono text-xs truncate block">
-            {lead.email}
-          </span>
-        </div>
+        {displayEmail ? (
+          <div className="flex items-center gap-1.5">
+            <Mail size={12} className="text-teal-500 shrink-0" />
+            <span className="text-teal-300 font-mono text-xs truncate block">
+              {displayEmail}
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <Mail size={12} className="text-slate-700 shrink-0" />
+            <span className="text-slate-600 text-xs">No email</span>
+          </div>
+        )}
       </td>
 
-      {/* Location — visible from 2xl only */}
+      {/* Location */}
       <td
         className="px-3 py-3 hidden 2xl:table-cell whitespace-nowrap"
         onClick={onClick}
@@ -129,15 +137,19 @@ export function LeadRow({
         </div>
       </td>
 
-      {/* Tier + Confidence badges */}
+      {/* Status — contact_category (A/B) + confidence */}
       <td className="px-3 py-3 w-32" onClick={onClick}>
         <div className="flex items-center gap-1 flex-wrap">
-          <Badge className={getTierColor(lead.lead_tier)}>
-            {lead.lead_tier}
-          </Badge>
-          <Badge className={getConfidenceColor(lead.email_confidence_level)}>
-            {lead.email_confidence_level}
-          </Badge>
+          {lead.contact_category && (
+            <Badge className={getCategoryColor(lead.contact_category)}>
+              {lead.contact_category}
+            </Badge>
+          )}
+          {displayConfidence && (
+            <Badge className={getConfidenceColor(displayConfidence)}>
+              {displayConfidence}
+            </Badge>
+          )}
         </div>
       </td>
 
