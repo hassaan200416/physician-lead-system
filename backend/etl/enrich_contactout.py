@@ -242,6 +242,9 @@ def load_results_excel() -> Optional[list[tuple]]:
 
     wb   = openpyxl.load_workbook(RESULTS_FILE)
     ws   = wb.active
+    if ws is None:
+        print("Error: worksheet is empty or cannot be read.")
+        return None
     rows = []
     for i, row in enumerate(ws.iter_rows(values_only=True)):
         if i == 0:
@@ -557,7 +560,8 @@ def _sync_leads(now: datetime) -> None:
         conn.commit()
 
         result = conn.execute(text("SELECT COUNT(*) FROM leads"))
-        count  = int(result.fetchone()[0])
+        count_row = result.fetchone()
+        count  = int(count_row[0]) if count_row and count_row[0] is not None else 0
         print(f"  Total leads: {count}")
 
         cats = conn.execute(text("""

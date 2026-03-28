@@ -217,6 +217,9 @@ def run_import() -> None:
 
     wb   = openpyxl.load_workbook(RESULTS_FILE)
     ws   = wb.active
+    if ws is None:
+        print("Error: worksheet is empty or cannot be read.")
+        return
     rows = []
     headers = None
     for i, row in enumerate(ws.iter_rows(values_only=True)):

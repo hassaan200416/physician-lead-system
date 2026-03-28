@@ -20,7 +20,7 @@ import { useLeads } from "../hooks/useLeads";
 import { useAllReviews } from "../hooks/useReviews";
 import { Badge } from "../components/ui/Badge";
 import { ScoreRing } from "../components/ui/ScoreRing";
-import { getTierColor, getConfidenceColor } from "../lib/utils";
+import { getCategoryColor, getConfidenceColor } from "../lib/utils";
 
 const RATING_COLORS: Record<number, string> = {
   1: "#ef4444",
@@ -48,20 +48,18 @@ export function Activity() {
   const { data: reviews = [] } = useAllReviews();
   const recentLeads = data?.leads ?? [];
 
-  // Sort reviews by most recently updated
   const sortedReviews = [...reviews].sort(
     (a, b) =>
       new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
   );
 
-  // Build a map of npi → lead for reviewed leads
   const leadMap = Object.fromEntries(recentLeads.map((l) => [l.npi, l]));
 
   return (
     <div>
       <TopBar title="Activity" />
       <div className="p-6 grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* ── Recently Added Leads ─────────────────────── */}
+        {/* Recently Added Leads */}
         <div>
           <h2 className="text-xs text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
             <MessageSquare size={12} />
@@ -71,64 +69,80 @@ export function Activity() {
             {recentLeads.length === 0 && (
               <p className="text-sm text-slate-500 py-4">No leads yet.</p>
             )}
-            {recentLeads.map((lead, i) => (
-              <motion.div
-                key={lead.npi}
-                initial={{ opacity: 0, x: -12 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="glass glass-hover rounded-xl p-4 flex items-center gap-4"
-              >
-                <ScoreRing score={lead.lead_score} size={44} />
+            {recentLeads.map((lead, i) => {
+              // Use personal_email first, fall back to legacy email
+              const displayEmail = lead.personal_email || lead.email;
+              // Use personal_email_confidence first, fall back to legacy
+              const displayConfidence =
+                lead.personal_email_confidence || lead.email_confidence_level;
 
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="text-sm font-medium text-white truncate">
-                      {lead.full_name}
-                    </span>
-                    <Badge className={getTierColor(lead.lead_tier)}>
-                      Tier {lead.lead_tier}
-                    </Badge>
-                    <Badge
-                      className={getConfidenceColor(
-                        lead.email_confidence_level,
+              return (
+                <motion.div
+                  key={lead.npi}
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="glass glass-hover rounded-xl p-4 flex items-center gap-4"
+                >
+                  <ScoreRing score={lead.lead_score} size={44} />
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-sm font-medium text-white truncate">
+                        {lead.full_name}
+                      </span>
+                      {/* Show contact_category (A/B) badge */}
+                      {lead.contact_category && (
+                        <Badge
+                          className={getCategoryColor(lead.contact_category)}
+                        >
+                          Cat {lead.contact_category}
+                        </Badge>
                       )}
-                    >
-                      {lead.email_confidence_level}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
-                    <span className="flex items-center gap-1">
-                      <Building2 size={11} />
-                      <span className="truncate max-w-[140px]">
-                        {lead.organization_name}
-                      </span>
-                    </span>
-                    <span className="flex items-center gap-1 text-teal-400/80 font-mono">
-                      <Mail size={11} />
-                      <span className="truncate max-w-[140px]">
-                        {lead.email}
-                      </span>
-                    </span>
-                    {lead.city && (
+                      {/* Show confidence badge if available */}
+                      {displayConfidence && (
+                        <Badge
+                          className={getConfidenceColor(displayConfidence)}
+                        >
+                          {displayConfidence}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
                       <span className="flex items-center gap-1">
-                        <MapPin size={11} />
-                        {lead.city}, {lead.state}
+                        <Building2 size={11} />
+                        <span className="truncate max-w-[140px]">
+                          {lead.organization_name}
+                        </span>
                       </span>
-                    )}
+                      {displayEmail && (
+                        <span className="flex items-center gap-1 text-teal-400/80 font-mono">
+                          <Mail size={11} />
+                          <span className="truncate max-w-[140px]">
+                            {displayEmail}
+                          </span>
+                        </span>
+                      )}
+                      {lead.city && (
+                        <span className="flex items-center gap-1">
+                          <MapPin size={11} />
+                          {lead.city}, {lead.state}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div className="text-xs text-slate-600 flex items-center gap-1 shrink-0">
-                  <Clock size={11} />
-                  {new Date(lead.created_at).toLocaleDateString()}
-                </div>
-              </motion.div>
-            ))}
+                  <div className="text-xs text-slate-600 flex items-center gap-1 shrink-0">
+                    <Clock size={11} />
+                    {new Date(lead.created_at).toLocaleDateString()}
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
 
-        {/* ── Recently Reviewed Leads ──────────────────── */}
+        {/* Recently Reviewed Leads */}
         <div>
           <h2 className="text-xs text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
             <Star size={12} />
@@ -153,7 +167,6 @@ export function Activity() {
                   transition={{ delay: i * 0.05 }}
                   className="glass glass-hover rounded-xl p-4 flex items-center gap-4"
                 >
-                  {/* Rating badge */}
                   <div
                     className="w-11 h-11 rounded-xl flex flex-col items-center justify-center shrink-0 border"
                     style={{
@@ -175,12 +188,10 @@ export function Activity() {
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    {/* Physician name or NPI fallback */}
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="text-sm font-medium text-white truncate">
                         {lead?.full_name ?? review.npi}
                       </span>
-                      {/* Status badge with unique color */}
                       <span
                         className="text-xs px-2 py-0.5 rounded-md border font-medium"
                         style={{
@@ -192,8 +203,6 @@ export function Activity() {
                         {statusInfo.label}
                       </span>
                     </div>
-
-                    {/* Notes preview if available */}
                     <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
                       {lead && (
                         <span className="flex items-center gap-1">

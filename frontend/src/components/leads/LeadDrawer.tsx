@@ -27,11 +27,7 @@ import {
 } from "lucide-react";
 import { Badge } from "../ui/Badge";
 import { ScoreRing } from "../ui/ScoreRing";
-import {
-  getTierColor,
-  getCategoryColor,
-  getConfidenceColor,
-} from "../../lib/utils";
+import { getTierColor, getCategoryColor } from "../../lib/utils";
 import type { Lead } from "../../types";
 
 interface LeadDrawerProps {

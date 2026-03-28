@@ -387,7 +387,7 @@ def run_import() -> None:
     print(f"  Rows     : {len(rows)}")
     print(f"  Columns  : {headers}")
 
-    cols = detect_columns(headers)
+    cols = detect_columns(list(headers) if headers else [])
     print(f"  Detected : {cols}")
     print()
 
@@ -677,7 +677,8 @@ def _sync_leads(now: datetime) -> None:
         conn.commit()
 
         result = conn.execute(text("SELECT COUNT(*) FROM leads"))
-        count  = int(result.fetchone()[0])
+        count_row = result.fetchone()
+        count  = int(count_row[0]) if count_row and count_row[0] is not None else 0
         print(f"  Total leads: {count}")
 
         cats = conn.execute(text("""

@@ -141,7 +141,7 @@ def get_physicians_to_enrich(
             """), {"npi": npi})
             rows = result.fetchall()
             print(f"NPI mode: found {len(rows)} physician")
-            return rows
+            return list(rows)
 
         # Per-source eligibility:
         # - Skip if fullenrich already tried this physician (in enrichment_sources[])
@@ -183,7 +183,7 @@ def get_physicians_to_enrich(
         result = conn.execute(text(query))
         rows   = result.fetchall()
         print(f"Found {len(rows)} physicians eligible for FullEnrich ({mode} mode)")
-        return rows
+        return list(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -649,7 +649,8 @@ def _sync_leads(now: datetime) -> None:
         conn.commit()
 
         result = conn.execute(text("SELECT COUNT(*) FROM leads"))
-        count  = int(result.fetchone()[0])
+        count_row = result.fetchone()
+        count  = int(count_row[0]) if count_row and count_row[0] is not None else 0
         print(f"  Total leads: {count}")
 
         cats = conn.execute(text("""
